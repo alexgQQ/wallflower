@@ -1,0 +1,48 @@
+{
+    "mappings": {
+        "properties": {
+            "searchable": {
+                "type": "boolean"
+            },
+            "top_color_0": {
+                "type": "dense_vector",
+                "dims": 3  
+            },
+            "top_color_1": {
+                "type": "dense_vector",
+                "dims": 3  
+            },
+            "top_color_2": {
+                "type": "dense_vector",
+                "dims": 3  
+            },
+            "top_labels": {
+                "fields": {
+                    "keyword": {
+                        "ignore_above": 256,
+                        "type": "keyword"
+                    }
+                },
+                "type": "text"
+            },
+            "guid": {
+                "fields": {
+                    "keyword": {
+                        "ignore_above": 256,
+                        "type": "keyword"
+                    }
+                },
+                "type": "text"
+            },
+            "extension": {
+                "fields": {
+                    "keyword": {
+                        "ignore_above": 256,
+                        "type": "keyword"
+                    }
+                },
+                "type": "text"
+            }
+        }
+    }
+}

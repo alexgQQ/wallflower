@@ -1,0 +1,7 @@
+.env
+Pipfile.lock
+*.db
+*.egg-info
+.vscode
+*.pyc
+credentials.json

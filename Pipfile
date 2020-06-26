@@ -1,0 +1,32 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+praw = "*"
+numpy = "*"
+scipy = "*"
+ipdb = "*"
+aiohttp = "*"
+aiofiles = "*"
+matplotlib = "*"
+Pillow = "*"
+google-cloud-vision = "*"
+scikit-image = "*"
+opencv-python = "*"
+peewee = "*"
+elasticsearch = ">=7.0.0,<8.0.0"
+colorama = "*"
+gcloud-aio-storage = "*"
+imgurpython = "*"
+pympler = "*"
+pyinstrument = "*"
+webcolors = "*"
+ndjson = "*"
+vptree = "*"
+
+[requires]
+python_version = "3.7"
