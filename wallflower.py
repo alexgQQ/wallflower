@@ -60,14 +60,9 @@ def find_duplicates():
     update.execute()
 
 
-def analyze_image(guid, image_loc):
-    try:
-        wallpaper = Wallpaper.get(guid=guid)
-    except Wallpaper.DoesNotExist:
-        click.secho('Image not found!', fg='red')
-        return None
-    filename = media_path(wallpaper.guid, wallpaper.extension, cdn_host=image_loc)
-    image = Image.open(filename)
+def analyze_image(image_loc):
+    data = {}
+    image = Image.open(image_loc)
     orig_image_array = np.asarray(image)
     _dhash = dhash(orig_image_array)
     # image = image.resize((200, 200))
@@ -81,38 +76,26 @@ def analyze_image(guid, image_loc):
         colors = []
     # labels = get_labels(filename, top_num=5)
     labels = []
-    wallpaper.dhash = _dhash
-    wallpaper.top_colors = ','.join(colors)
-    wallpaper.top_labels = ','.join(labels)
-    wallpaper.analyzed = True
-    wallpaper.save()
+    return {
+        'dhash': _dhash,
+        'top_colors': ','.join(colors),
+        'top_labels': ','.join(labels),
+    }
 
 
-def analyze(image_loc, limit=20):
-
+def analyze(image_dir, limit=20):
+    to_update = []
     for wallpaper in Wallpaper.select().where(
         Wallpaper.downloaded == True and Wallpaper.analyzed == False):
-        filename = media_path(wallpaper.guid, wallpaper.extension, cdn_host=image_loc)
-        image = Image.open(filename)
-        orig_image_array = np.asarray(image)
-        _dhash = dhash(orig_image_array)
-        # image = image.resize((200, 200))
-        image.thumbnail((200, 200), Image.ANTIALIAS)
-        image_array = np.asarray(image)
-        colors = common_colors(image_array, 5)
-        top_colors = sorted(zip(colors[1], colors[0]), reverse=True)
-        try:
-            colors = [to_hex(*val[:3]) for _, val in top_colors]
-        except:
-            colors = []
-            continue
-        # labels = get_labels(filename, top_num=5)
-        labels = []
-        wallpaper.dhash = _dhash
-        wallpaper.top_colors = ','.join(colors)
-        wallpaper.top_labels = ','.join(labels)
+        filename = media_path(wallpaper.guid, wallpaper.extension, cdn_host=image_dir)
+        data = analyze_image(filename)
+        for attr, value in data.items():
+            setattr(wallpaper, attr, value)
         wallpaper.analyzed = True
-        wallpaper.save()
+        to_update.append(wallpaper)
+    fields = list(data.keys())
+    fields.append('analyzed')
+    Wallpaper.bulk_update(to_update, fields=fields)
 
 
 def from_reddit(limit=20):
