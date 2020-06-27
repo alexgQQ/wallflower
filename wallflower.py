@@ -23,6 +23,43 @@ from app.utils import (
 )
 
 
+def find_duplicates():
+    query = (Wallpaper
+                .select(Wallpaper.dhash, Wallpaper.guid)
+                .where(Wallpaper.dhash != None and Wallpaper.duplicate == False)
+                .namedtuples()
+                )
+    hashes = []
+    hash_to_guid = {}
+
+    for entry in query:
+        _hash = convert_hash(entry.dhash)
+        hash_to_guid[_hash] = entry.guid
+        hashes.append(_hash)
+
+    search_tree = vptree.VPTree(hashes, hamming)
+    duplicates = {}
+
+    for search_hash, search_guid in hash_to_guid.items():
+        results = search_tree.get_all_in_range(search_hash, 4)
+        results = sorted(results)
+        similar_guids = []
+        for (distance, _hash) in results:
+            found_guid = hash_to_guid.get(_hash)
+            if found_guid != search_guid:
+                similar_guids.append(found_guid)
+        if similar_guids:
+            duplicates[search_guid] = similar_guids
+
+    to_mark = []
+    for found_duplicate, related_duplicates in duplicates.items():
+        if found_duplicate not in to_mark:
+            to_mark += related_duplicates 
+
+    update = Wallpaper.update(duplicate=True).where(Wallpaper.guid.in_(to_mark))
+    update.execute()
+
+
 def analyze_image(guid, image_loc):
     try:
         wallpaper = Wallpaper.get(guid=guid)
@@ -203,30 +240,7 @@ def inspect(ctx, image_dir, image, reset, duplicates):
         return None
 
     if duplicates:
-        query = (Wallpaper
-                 .select(Wallpaper.dhash, Wallpaper.guid)
-                 .where(Wallpaper.dhash != None)
-                 .namedtuples()
-                 )
-        hashes = []
-        data = {}
-        for entry in query:
-            h = convert_hash(entry.dhash)
-            data[h] = entry.guid
-            hashes.append(h)
-        tree = vptree.VPTree(hashes, hamming)
-        dups = {}
-        for h, guid in data.items():
-            results = tree.get_all_in_range(h, 4)
-            results = sorted(results)
-            gs = []
-            for (d, h) in results:
-                g = data.get(h)
-                if g != guid:
-                    gs.append(g)
-            if gs:
-                dups[guid] = gs
-        print(dups)
+        find_duplicates()
         return None
 
     if reset:

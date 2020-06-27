@@ -21,7 +21,7 @@ db = SqliteDatabase(db_loc)
 def handle_migration():
     migrator = SqliteMigrator(db)
     migrate(
-        migrator.alter_column_type('wallpaper', 'dhash', CharField(null=True)),
+        migrator.add_column('wallpaper', 'duplicate', BooleanField(default=False))
     )
 
 
@@ -36,6 +36,7 @@ class Wallpaper(Model):
     analyzed = BooleanField()
     source_type = CharField(null=True)
     dhash = CharField(null=True)
+    duplicate = BooleanField(default=False)
 
     class Meta:
         database = db
