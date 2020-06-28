@@ -4,6 +4,7 @@ import uuid
 import time
 import numpy as np
 import vptree
+import requests
 
 from PIL import Image
 
@@ -20,6 +21,7 @@ from app.utils import (
     dhash,
     convert_hash,
     hamming,
+    approx_image_bytesize,
 )
 
 
@@ -107,6 +109,7 @@ def from_reddit(limit=20):
     for obj in client.saved_wallpapers(limit=limit):
         # TODO: Should explore other algorithms like batch pulls
         # may be inefficient to check each one individually
+        image_size = int(requests.head(obj.url).headers['Content-Length'])
         try:
             Wallpaper.get(reddit_id=obj.id)
         except Wallpaper.DoesNotExist:
@@ -118,6 +121,7 @@ def from_reddit(limit=20):
                 'extension': obj.url.split('.')[-1],
                 'analyzed': False,
                 'source_type': 'reddit',
+                'size_in_bytes': image_size,
             }
             Wallpaper.create(**create_params)
 
@@ -315,3 +319,10 @@ def search(ctx, color, upload):
         results = search_color(value[0,0,:])
         for item in results:
             click.secho(os.path.join(image_dir, media_path(item['guid'], item['extension'])))
+
+
+@cli.command()
+@click.pass_context
+def run(ctx):
+    # Placeholder for one-off commands
+    pass

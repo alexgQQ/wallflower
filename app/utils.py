@@ -3,6 +3,8 @@ import io
 import scipy
 import scipy.cluster
 import cv2
+import sys
+import tempfile
 import numpy as np
 
 import asyncio
@@ -225,3 +227,13 @@ def hex_to_lab(hex):
 
 def hamming(a, b):
 	return bin(int(a) ^ int(b)).count('1')
+
+
+def approx_image_bytesize(image):
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        filename = f'temp_image.{image.format.lower()}'
+        file_path = os.path.join(tmpdirname, filename)
+        image.save(file_path)
+        sys_size = os.stat(file_path).st_size
+
+    return sys_size
