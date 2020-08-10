@@ -21,14 +21,15 @@ db = SqliteDatabase(db_loc)
 def handle_migration():
     migrator = SqliteMigrator(db)
     migrate(
-        migrator.add_column('wallpaper', 'size_in_bytes', IntegerField(null=True))
+        migrator.rename_column('wallpaper', 'reddit_id', 'source_id')
     )
 
 
 class Wallpaper(Model):
+
     guid = CharField()
     url = CharField(null=True)
-    reddit_id = IntegerField(null=True)
+    source_id = IntegerField(null=True)
     downloaded = BooleanField()
     top_colors = TextField(null=True)
     top_labels = TextField(null=True)
@@ -50,14 +51,18 @@ class Wallpaper(Model):
             '_id': self.id,
         }
         data = {
-            'top_color_0': list(hex_to_lab(self.top_colors.split(',')[0])[0,0,:]) if self.top_colors else '',
-            'top_color_1': list(hex_to_lab(self.top_colors.split(',')[1])[0,0,:]) if self.top_colors else '',
-            'top_color_2': list(hex_to_lab(self.top_colors.split(',')[2])[0,0,:]) if self.top_colors else '',
             'top_labels': self.top_labels,
             'searchable': True,
-            'guid': self.guid,
-            'extension': self.extension,
+            'url': self.url,
         }
+        colors = [] if not self.top_colors else self.top_colors.split(',')
+        i = -1
+        for i, color in enumerate(colors):
+            data.update({f'top_color_{i}': list(hex_to_lab(color)[0,0,:])})
+        while i < 9:
+            i += 1
+            data.update({f'top_color_{i}': [0.0, 0.0, 0.0]})
+
         return index, data
 
 

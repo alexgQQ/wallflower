@@ -4,14 +4,15 @@ import scipy
 import scipy.cluster
 import cv2
 import sys
-import tempfile
 import numpy as np
+import requests
 
 import asyncio
 import aiohttp
 import aiofiles
 from gcloud.aio.storage import Storage
 from skimage import color
+from PIL import Image
 
 from google.cloud import vision
 from google.cloud.vision import types
@@ -186,35 +187,55 @@ def pixelate(image, size=(32, 32)):
     return pixelated_image
 
 
-def get_labels(image_loc, top_num=5):
+def get_labels(image, top_num=5):
     client = vision.ImageAnnotatorClient()
 
-    file_name = os.path.abspath(image_loc)
-
-    with io.open(file_name, 'rb') as image_file:
-        content = image_file.read()
-
-    image = types.Image(content=content)
+    # Load image as bytes stream for GCP request
+    image_content = io.BytesIO()
+    image.save(image_content, format=image.format)
+    image = types.Image(content=image_content.getvalue())
 
     label_response = client.label_detection(image=image)
-    return [label.description for label in label_response.label_annotations[:top_num]]
+    return [label.description for label in label_response.label_annotations[:]]
 
 
-def get_colors(image_loc, top_num=5):
+def get_colors(image, top_num=5):
     client = vision.ImageAnnotatorClient()
 
-    file_name = os.path.abspath(image_loc)
-
-    with io.open(file_name, 'rb') as image_file:
-        content = image_file.read()
-
-    image = types.Image(content=content)
+    # Load image as bytes stream for GCP request
+    image_content = io.BytesIO()
+    image.save(image_content, format=image.format)
+    image = types.Image(content=image_content.getvalue())
 
     property_response = client.image_properties(image=image)
-    return [color for color in property_response.image_properties_annotation.dominant_colors.colors[:top_num]]
+    return [color for color in property_response.image_properties_annotation.dominant_colors.colors[:]]
+
+
+def get_labels_and_colors(image):
+    client = vision.ImageAnnotatorClient()
+
+    # Load image as bytes stream for GCP request
+    image_content = io.BytesIO()
+    image.save(image_content, format=image.format)
+    image = types.Image(content=image_content.getvalue())
+
+    property_response = client.image_properties(image=image)
+    label_response = client.label_detection(image=image)
+
+    labels = [
+        label.description 
+        for label in sorted(label_response.label_annotations, key=lambda x: x.score, reverse=True)
+        ]
+    colors = [
+        to_hex(color.color.red, color.color.green, color.color.blue)
+        for color in sorted(property_response.image_properties_annotation.dominant_colors.colors, key=lambda x: x.score, reverse=True)
+        ]
+
+    return labels, colors
 
 
 def to_hex(red, green, blue):
+    red, green, blue = int(red), int(green), int(blue)
     return f'{red:02x}{green:02x}{blue:02x}'
 
 
@@ -237,3 +258,17 @@ def approx_image_bytesize(image):
         sys_size = os.stat(file_path).st_size
 
     return sys_size
+
+
+def load_image(image_location):
+    """
+    param image_location: string of filepath or url of image to load
+    return image: pillow image object
+    """
+    if image_location.startswith('http'):
+        response = requests.get(image_location)
+        image = Image.open(io.BytesIO(response.content))
+    else:
+        image = Image.open(image_location)
+
+    return image

@@ -27,6 +27,7 @@ pyinstrument = "*"
 webcolors = "*"
 ndjson = "*"
 vptree = "*"
+pytest = "*"
 
 [requires]
 python_version = "3.7"

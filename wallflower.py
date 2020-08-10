@@ -5,12 +5,14 @@ import time
 import numpy as np
 import vptree
 import requests
+import tempfile
 
+from collections import defaultdict
 from PIL import Image
 
 from app.reddit import RedditClient
 from app.db import Wallpaper
-from app.elastic import upload_data, search_color
+from app.elastic import upload_data, search as _search, put_mappings
 from app.utils import (
     download as async_download,
     media_path,
@@ -22,62 +24,71 @@ from app.utils import (
     convert_hash,
     hamming,
     approx_image_bytesize,
+    load_image,
+    get_colors,
+    get_labels_and_colors,
 )
 
 
 def find_duplicates():
-    query = (Wallpaper
-                .select(Wallpaper.dhash, Wallpaper.guid)
-                .where(Wallpaper.dhash != None and Wallpaper.duplicate == False)
-                .namedtuples()
-                )
-    hashes = []
+
+    # Build a mapping of guids to image hashes for searching
+    query = Wallpaper.select(Wallpaper.dhash, Wallpaper.guid) \
+                     .where(Wallpaper.dhash != None) \
+                     .namedtuples()
     hash_to_guid = {}
-
-    for entry in query:
-        _hash = convert_hash(entry.dhash)
-        hash_to_guid[_hash] = entry.guid
-        hashes.append(_hash)
-
-    search_tree = vptree.VPTree(hashes, hamming)
     duplicates = {}
 
+    for entry in query:
+        image_hash = convert_hash(entry.dhash)
+        if image_hash in hash_to_guid:
+            duplicates[hash_to_guid[image_hash]] = [entry.guid]
+        else:
+            hash_to_guid[image_hash] = entry.guid
+    print(duplicates)
+    # Load a vantage point tree with a hamming distance search indexer
+    search_tree = vptree.VPTree(list(hash_to_guid.keys()), hamming)
+    duplicates = {}
+
+    # Find similar hashes for each image
     for search_hash, search_guid in hash_to_guid.items():
         results = search_tree.get_all_in_range(search_hash, 4)
         results = sorted(results)
-        similar_guids = []
-        for (distance, _hash) in results:
-            found_guid = hash_to_guid.get(_hash)
-            if found_guid != search_guid:
-                similar_guids.append(found_guid)
+        similar_guids = [hash_to_guid.get(_hash) for distance, _hash in results if _hash != search_hash]
+
         if similar_guids:
             duplicates[search_guid] = similar_guids
 
+    # Mark single images as duplicates
     to_mark = []
+    check = {}
     for found_duplicate, related_duplicates in duplicates.items():
         if found_duplicate not in to_mark:
-            to_mark += related_duplicates 
+            to_mark += related_duplicates
+            check[Wallpaper.get(guid=found_duplicate).url] = [obj.url for obj in Wallpaper.select().where(Wallpaper.guid.in_(related_duplicates))]
 
-    update = Wallpaper.update(duplicate=True).where(Wallpaper.guid.in_(to_mark))
-    update.execute()
+    # update = Wallpaper.update(duplicate=True).where(Wallpaper.guid.in_(to_mark))
+    # update.execute()
+    return check
 
 
-def analyze_image(image_loc):
-    data = {}
-    image = Image.open(image_loc)
-    orig_image_array = np.asarray(image)
-    _dhash = dhash(orig_image_array)
-    # image = image.resize((200, 200))
-    image.thumbnail((200, 200), Image.ANTIALIAS)
+def analyze_image(image, image_size):
+    '''
+    Gather information on an image for search organization.
+    :param PIL.Image image: image to analyze.
+    :param int image_size: File size of the image, this is inaccurate to calculate from
+                           the PIL.Image itself, should be gathered from the file itself.
+    :return dict: Dictionary of analysis data.
+    '''
+
+    # Google vision api limits image sizes to 10MB
+    # if image_size >= 10485760:
+    #     image.thumbnail((1920, 1080), Image.ANTIALIAS)
+    image.thumbnail((1920, 1080), Image.ANTIALIAS)
     image_array = np.asarray(image)
-    colors = common_colors(image_array, 5)
-    top_colors = sorted(zip(colors[1], colors[0]), reverse=True)
-    try:
-        colors = [to_hex(*val[:3]) for _, val in top_colors]
-    except:
-        colors = []
-    # labels = get_labels(filename, top_num=5)
-    labels = []
+    _dhash = dhash(image_array)
+    labels, colors = get_labels_and_colors(image)
+
     return {
         'dhash': _dhash,
         'top_colors': ','.join(colors),
@@ -85,19 +96,25 @@ def analyze_image(image_loc):
     }
 
 
-def analyze(image_dir, limit=20):
+def analyze(limit=20):
+
     to_update = []
-    for wallpaper in Wallpaper.select().where(
-        Wallpaper.downloaded == True and Wallpaper.analyzed == False):
-        filename = media_path(wallpaper.guid, wallpaper.extension, cdn_host=image_dir)
-        data = analyze_image(filename)
-        for attr, value in data.items():
-            setattr(wallpaper, attr, value)
-        wallpaper.analyzed = True
-        to_update.append(wallpaper)
+    for entry in Wallpaper.select().where(Wallpaper.analyzed == False).limit(limit):
+        try:
+            image = load_image(entry.url)
+            data = analyze_image(image, entry.size_in_bytes)
+            # Each model instance must be loaded with changes for bulk updates.
+            for attr, value in data.items():
+                setattr(entry, attr, value)
+            entry.analyzed = True
+            to_update.append(entry)
+        except requests.exceptions.RequestException:
+            pass
+
+    # Any fields that are being changed must be identified by name for bulk updates.
     fields = list(data.keys())
     fields.append('analyzed')
-    Wallpaper.bulk_update(to_update, fields=fields)
+    Wallpaper.bulk_update(to_update, fields=fields, batch_size=50)
 
 
 def from_reddit(limit=20):
@@ -105,25 +122,24 @@ def from_reddit(limit=20):
     Gather all images from saved reddit posts and load them into the database.
     :param int limit: The number of reddit posts to pull.
     '''
+    to_create = []
     client = RedditClient()
     for obj in client.saved_wallpapers(limit=limit):
-        # TODO: Should explore other algorithms like batch pulls
-        # may be inefficient to check each one individually
-        image_size = int(requests.head(obj.url).headers['Content-Length'])
         try:
             Wallpaper.get(reddit_id=obj.id)
         except Wallpaper.DoesNotExist:
             create_params = {
                 'guid': str(uuid.uuid4()),
                 'url': obj.url,
-                'reddit_id': obj.id,
+                'source_id': obj.id,
                 'downloaded': False,
                 'extension': obj.url.split('.')[-1],
                 'analyzed': False,
                 'source_type': 'reddit',
-                'size_in_bytes': image_size,
+                'size_in_bytes': int(requests.head(obj.url).headers['Content-Length']),
             }
-            Wallpaper.create(**create_params)
+            to_create.append(create_params)
+    Wallpaper.insert_many(to_create).execute()
 
 
 def _download(limit=500, location=''):
@@ -217,8 +233,12 @@ def pull(
     '--duplicates', default=False, is_flag=True,
     help='Find duplicate images.', show_default=True,
     )
+@click.option(
+    '--limit', default=0, type=int,
+    show_default=True, help='Number of images to inspect',
+    )
 @click.pass_context
-def inspect(ctx, image_dir, image, reset, duplicates):
+def inspect(ctx, image_dir, image, reset, duplicates, limit):
     '''
     Analyze current set of images.
     '''
@@ -227,16 +247,15 @@ def inspect(ctx, image_dir, image, reset, duplicates):
         return None
 
     if duplicates:
-        find_duplicates()
+        values = find_duplicates()
+        print(values)
         return None
 
     if reset:
-        for obj in Wallpaper.select():
-            obj.analyzed = False
-            obj.save()
-    total = Wallpaper.select().where(Wallpaper.analyzed == False).count()
-    click.secho(f'Analyzing {total} files...')
-    analyze(image_dir)
+        Wallpaper.update({'analyzed': False}).execute()
+
+    click.secho(f'Analyzing {limit} files...')
+    analyze(limit=limit)
     click.secho(f'Done!')
 
 
@@ -295,15 +314,24 @@ def info(ctx, image_dir, image, validate, check_source):
 
 
 @cli.command()
-@click.argument(
-    'color', required=False, default=None
+@click.option(
+    '--label', type=str, default=None,
+    help='Label keyword to search.', show_default=True,
+    )
+@click.option(
+    '--color', type=str, default=None,
+    help='Hex color value to search.', show_default=True,
     )
 @click.option(
     '--upload', is_flag=True, default=False,
     help='Upload elasticsearch models.', show_default=True,
     )
+@click.option(
+    '--mappings', is_flag=True, default=False,
+    help='Upload elasticsearch field mappings.', show_default=True,
+    )
 @click.pass_context
-def search(ctx, color, upload):
+def search(ctx, label, color, upload, mappings):
     '''
     Search elasticsearch instance with given info.
     '''
@@ -313,16 +341,17 @@ def search(ctx, color, upload):
         click.secho('Done!')
         return
 
+    if mappings:
+        click.secho('Mapping elasticsearch fields...')
+        put_mappings()
+        click.secho('Done!')
+        return
+
     if color is not None:
         value = hex_to_lab(color)
-        image_dir = os.environ.get('IMAGE_DIRECTORY')
-        results = search_color(value[0,0,:])
-        for item in results:
-            click.secho(os.path.join(image_dir, media_path(item['guid'], item['extension'])))
+        color = value[0,0,:]
 
+    results = _search(lab_colors=color, label_keyword=label)
 
-@cli.command()
-@click.pass_context
-def run(ctx):
-    # Placeholder for one-off commands
-    pass
+    for result in results['hits']['hits']:
+        click.secho(str(result['_source']['url']))
