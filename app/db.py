@@ -54,6 +54,7 @@ class Wallpaper(Model):
             'top_labels': self.top_labels,
             'searchable': True,
             'url': self.url,
+            'extension': self.extension,
         }
         colors = [] if not self.top_colors else self.top_colors.split(',')
         i = -1
