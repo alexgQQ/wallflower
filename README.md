@@ -54,3 +54,15 @@ Upload the searchable information.
 ```
 wallflower search --upload
 ```
+
+## Code Quality
+
+Lint 
+```
+pylint app
+```
+
+Type Checking
+```
+mypy --ignore-missing-imports --follow-imports=skip app/clients
+```

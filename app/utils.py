@@ -13,13 +13,14 @@ import aiofiles
 from gcloud.aio.storage import Storage
 from skimage import color
 from PIL import Image
+from typing import Type, List
 
 from google.cloud import vision
 from google.cloud.vision import types
 
 
 
-async def download_file(url, dst):
+async def download_file(url: str, dst: str):
     '''
     Async download routine for an image url.
     :param string url: Url location of the file to download
@@ -38,7 +39,7 @@ async def download_file(url, dst):
         await outfile.write(data)
 
 
-async def gather_download_routines(urls, file_names):
+async def gather_download_routines(urls: List[str], file_names: List[str]):
     '''
     Assemble a list of async download routines for execution.
     :param list urls: List of string url locations, should match the length of filenames given.
@@ -48,7 +49,7 @@ async def gather_download_routines(urls, file_names):
     return await asyncio.gather(*download_futures)
 
 
-def download(urls, filenames):
+def download(urls: List[str], filenames: List[str]):
     '''
     Bulk download a list of urls to their respective filename. Executes async routines for better performance.
     :param list urls: List of string url locations, should match the length of filenames given.
@@ -102,12 +103,8 @@ def upload(file_names, destinations, bucket):
 #     blob.upload_from_string(imageByteArray.getvalue())
 
 
-def media_path(guid, extension, cdn_host=''):
-    '''
-    Return the file path for the provided file.
-    :param string guid: The global identifier for the file.
-    :param string extension: The file extension.
-    '''
+def media_path(guid: str, extension: str, cdn_host: str = '') -> str:
+    ''' Return the file path for the provided guid and host. '''
     file_path = f'{guid[0]}/{guid[1]}/{guid[2]}/{guid}.{extension}'
     return os.path.join(cdn_host, file_path)
 
@@ -142,11 +139,11 @@ def common_colors(image, num_of_clusters):
     return codes.astype(int), counts
 
 
-def dhash(image, hashSize=8):
+def dhash(image: np.array, hashSize: int = 8) -> int:
     """
-    param image: np.array of image data, should be at least 2 dimensions
-    param hashSize: integer for the size to shrink the image down to
-    return int: hash of image representing pixel differences
+    Creates a perceptual hash known as 'dhash' for a given image as an array
+    Reference: http://www.hackerfactor.com/blog/index.php?/archives/529-Kind-of-Like-That.html
+    The hash size will determine the bits to be compared, by default 64(8x8) is used.
     """
     resized = cv2.resize(image, (hashSize + 1, hashSize))
     diff = resized[:, 1:] > resized[:, :-1]
@@ -187,88 +184,32 @@ def pixelate(image, size=(32, 32)):
     return pixelated_image
 
 
-def get_labels(image, top_num=5):
-    client = vision.ImageAnnotatorClient()
-
-    # Load image as bytes stream for GCP request
-    image_content = io.BytesIO()
-    image.save(image_content, format=image.format)
-    image = types.Image(content=image_content.getvalue())
-
-    label_response = client.label_detection(image=image)
-    return [label.description for label in label_response.label_annotations[:]]
-
-
-def get_colors(image, top_num=5):
-    client = vision.ImageAnnotatorClient()
-
-    # Load image as bytes stream for GCP request
-    image_content = io.BytesIO()
-    image.save(image_content, format=image.format)
-    image = types.Image(content=image_content.getvalue())
-
-    property_response = client.image_properties(image=image)
-    return [color for color in property_response.image_properties_annotation.dominant_colors.colors[:]]
-
-
-def get_labels_and_colors(image):
-    client = vision.ImageAnnotatorClient()
-
-    # Load image as bytes stream for GCP request
-    image_content = io.BytesIO()
-    image.save(image_content, format=image.format)
-    image = types.Image(content=image_content.getvalue())
-
-    property_response = client.image_properties(image=image)
-    label_response = client.label_detection(image=image)
-
-    labels = [
-        label.description 
-        for label in sorted(label_response.label_annotations, key=lambda x: x.score, reverse=True)
-        ]
-    colors = [
-        to_hex(color.color.red, color.color.green, color.color.blue)
-        for color in sorted(property_response.image_properties_annotation.dominant_colors.colors, key=lambda x: x.score, reverse=True)
-        ]
-
-    return labels, colors
-
-
-def to_hex(red, green, blue):
-    red, green, blue = int(red), int(green), int(blue)
+def to_hex(red: int, green: int, blue: int) -> str:
+    ''' Convert 0-255 RGB values to a hex color string '''
     return f'{red:02x}{green:02x}{blue:02x}'
 
 
-def hex_to_lab(hex):
-    r = np.asarray(int(hex[0:2], 16), np.uint8)
-    g = np.asarray(int(hex[2:4], 16), np.uint8)
-    b = np.asarray(int(hex[4:6], 16), np.uint8)
-    return color.rgb2lab(np.dstack((r, g, b)))
+def hex_to_lab(hex_value: str) -> Type[np.array]:
+    '''
+    Convert a string hex color to a lab colorspace as an numpy array.
+    This is intended to work for a single color and should return a (,3) array.
+    '''
+    red = np.asarray(int(hex_value[0:2], 16), np.uint8)
+    green = np.asarray(int(hex_value[2:4], 16), np.uint8)
+    blue = np.asarray(int(hex_value[4:6], 16), np.uint8)
+    return color.rgb2lab(np.dstack((red, green, blue)))[0,0,:]
 
 
-def hamming(a, b):
-	return bin(int(a) ^ int(b)).count('1')
+def hamming(a: int, b: int) -> int:
+    ''' Find the hamming distance between two integers '''
+    return bin(int(a) ^ int(b)).count('1')
 
 
-def approx_image_bytesize(image):
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        filename = f'temp_image.{image.format.lower()}'
-        file_path = os.path.join(tmpdirname, filename)
-        image.save(file_path)
-        sys_size = os.stat(file_path).st_size
-
-    return sys_size
-
-
-def load_image(image_location):
-    """
-    param image_location: string of filepath or url of image to load
-    return image: pillow image object
-    """
+def load_image(image_location: str) -> Image:
+    ''' Load image data into memory from a url or local file '''
     if image_location.startswith('http'):
         response = requests.get(image_location)
         image = Image.open(io.BytesIO(response.content))
     else:
         image = Image.open(image_location)
-
     return image

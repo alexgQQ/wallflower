@@ -10,7 +10,7 @@ import tempfile
 from collections import defaultdict
 from PIL import Image
 
-from app.reddit import RedditClient
+from app.clients import RedditClient
 from app.db import Wallpaper
 from app.elastic import upload_data, search as _search, put_mappings
 from app.utils import (
@@ -23,7 +23,6 @@ from app.utils import (
     dhash,
     convert_hash,
     hamming,
-    approx_image_bytesize,
     load_image,
     get_colors,
     get_labels_and_colors,

@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "wallflower"
+version = "0.1.0"
+description = "CLI utility to gather wallpaper image information from sources"
+authors = ["alexgQQ <alex.grand@beatport.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+praw = "*"
+numpy = "*"
+scipy = "*"
+aiohttp = "*"
+aiofiles = "*"
+matplotlib = "*"
+Pillow = "*"
+google-cloud-vision = "*"
+scikit-image = "*"
+opencv-python = "*"
+peewee = "*"
+elasticsearch = ">=7.0.0,<8.0.0"
+colorama = "*"
+gcloud-aio-storage = "*"
+imgurpython = "*"
+webcolors = "*"
+ndjson = "*"
+vptree = "*"
+
+[tool.poetry.dev-dependencies]
+ipdb = "*"
+pytest = "*"
+mypy = "*"
+pylint = "*"
+pympler = "*"
+pyinstrument = "*"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"

@@ -1,4 +1,5 @@
 import os
+from playhouse.migrate import SqliteMigrator, migrate
 from peewee import (
     SqliteDatabase,
     Model,
@@ -9,17 +10,20 @@ from peewee import (
     BooleanField,
     TextField,
 )
-from playhouse.migrate import SqliteMigrator, migrate
 
 from .utils import hex_to_lab
 
 
-db_loc = os.environ.get('DATABASE_LOCATION')
-db = SqliteDatabase(db_loc)
+database_loc = os.environ.get('DATABASE_LOCATION')
+database = SqliteDatabase(database_loc)
 
 
 def handle_migration():
-    migrator = SqliteMigrator(db)
+    '''
+    Define migration operations to apply to the database
+    PeeWee Reference: http://docs.peewee-orm.com/en/latest/peewee/playhouse.html#schema-migrations
+    '''
+    migrator = SqliteMigrator(database)
     migrate(
         migrator.rename_column('wallpaper', 'reddit_id', 'source_id')
     )
@@ -41,7 +45,7 @@ class Wallpaper(Model):
     size_in_bytes = IntegerField(null=True)
 
     class Meta:
-        database = db
+        database = database
 
     def elastic_model(self):
         '''
@@ -67,4 +71,4 @@ class Wallpaper(Model):
         return index, data
 
 
-db.create_tables([Wallpaper])
+database.create_tables([Wallpaper])

@@ -28,6 +28,8 @@ webcolors = "*"
 ndjson = "*"
 vptree = "*"
 pytest = "*"
+mypy = "*"
+pylint = "*"
 
 [requires]
 python_version = "3.7"
