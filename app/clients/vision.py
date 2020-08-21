@@ -7,11 +7,12 @@ from typing import Type
 from PIL import Image
 
 from google.cloud.vision import types, ImageAnnotatorClient
+from google.cloud.vision import enums
 
 from app.utils import to_hex
 
 
-def image_content_to_type(image: Type[Image]) -> types.Image:
+def image_content_to_type(image):
     ''' Load image data as bytestream into an understandable google client data type '''
     image_content = io.BytesIO()
     image.save(image_content, format=image.format)
@@ -32,12 +33,12 @@ def colors(client: Type[ImageAnnotatorClient], image: Type[types.Image]) -> list
     property_response = client.image_properties(image=image)
     colors = property_response.image_properties_annotation.dominant_colors.colors
     return [
-        to_hex(color.color.red, color.color.green, color.color.blue)
+        to_hex(int(color.color.red), int(color.color.green), int(color.color.blue))
         for color in sorted(colors, key=lambda x: x.score, reverse=True)
         ]
 
 
-def vision_image_properties(image: Type[Image]) -> dict:
+def vision_image_properties(image) -> dict:
     ''' Gather image properties from the Google Vision API '''
     client = ImageAnnotatorClient()
     image_data = image_content_to_type(image)
@@ -45,3 +46,26 @@ def vision_image_properties(image: Type[Image]) -> dict:
         'colors': colors(client, image_data),
         'labels': labels(client, image_data),
     }
+
+
+def bulk_analyze(image_data: list, output_dir: str, bucket: str):
+    ''' Perform async batch image annotation. '''
+    client = ImageAnnotatorClient()
+    output_uri = f'gs://{bucket}/{output_dir}/'
+    gcs_destination = {'uri': output_uri}
+    features = [
+        {'type': enums.Feature.Type.LABEL_DETECTION},
+        {'type': enums.Feature.Type.IMAGE_PROPERTIES},
+    ]
+    batch_size = 20
+    output_config = {"gcs_destination": gcs_destination,
+                     "batch_size": batch_size}
+
+    requests = []
+    for each in image_data:
+        source = {"image_uri": f'gs://{bucket}/{each}'}
+        image = {'source': source}
+        requests.append({'image': image, 'features': features})
+
+    operation = client.async_batch_annotate_images(requests, output_config=output_config)
+    operation.result()

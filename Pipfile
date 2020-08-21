@@ -30,6 +30,7 @@ vptree = "*"
 pytest = "*"
 mypy = "*"
 pylint = "*"
+google-cloud-storage = "*"
 
 [requires]
 python_version = "3.7"

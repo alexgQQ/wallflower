@@ -72,3 +72,19 @@ class Wallpaper(Model):
 
 
 database.create_tables([Wallpaper])
+
+
+def bulk_update_db_entries(
+    models_to_update: list, update_data: dict, batch_size: int = 50, key_field: str = 'id'):
+    '''
+    Update Wallpaper db entries in a bulk fashion. Provide a list of model instances to update and a dict of
+    data to match using the 'key_field' to match between models.
+    '''
+
+    assert len(models_to_update) == len(update_data), 'models_to_update and update_data must be the same length'
+    fields_to_update = update_data[list(update_data.keys())[0]].keys()
+    for model in models_to_update:
+        values = update_data[getattr(model, key_field)]
+        for attr in fields_to_update:
+            setattr(model, attr, values.get(attr))
+    Wallpaper.bulk_update(models_to_update, fields=fields_to_update, batch_size=batch_size)

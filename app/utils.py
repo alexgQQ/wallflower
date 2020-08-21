@@ -14,8 +14,9 @@ from gcloud.aio.storage import Storage
 from skimage import color
 from PIL import Image
 from typing import Type, List
+import datetime
 
-from google.cloud import vision
+from google.cloud import vision, storage
 from google.cloud.vision import types
 
 
@@ -23,8 +24,6 @@ from google.cloud.vision import types
 async def download_file(url: str, dst: str):
     '''
     Async download routine for an image url.
-    :param string url: Url location of the file to download
-    :param string dst: File destination for the file
     '''
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
         response = await session.get(url)
@@ -42,8 +41,6 @@ async def download_file(url: str, dst: str):
 async def gather_download_routines(urls: List[str], file_names: List[str]):
     '''
     Assemble a list of async download routines for execution.
-    :param list urls: List of string url locations, should match the length of filenames given.
-    :param list file_names: List of string file locations, should match the length of urls given.
     '''
     download_futures = [download_file(url, dst) for url, dst in zip(urls, file_names)]
     return await asyncio.gather(*download_futures)
@@ -52,44 +49,68 @@ async def gather_download_routines(urls: List[str], file_names: List[str]):
 def download(urls: List[str], filenames: List[str]):
     '''
     Bulk download a list of urls to their respective filename. Executes async routines for better performance.
-    :param list urls: List of string url locations, should match the length of filenames given.
-    :param list file_names: List of string file locations, should match the length of urls given.
     '''
     asyncio.run(gather_download_routines(urls, filenames))
 
 
-async def upload_file(src, dst, bucket):
+async def load_file(url: str):
     '''
-    Async upload routine for uploading an image to a google bucket.
-    :param string src: File location of the source file.
-    :param string dst: Bucket destination of the file.
+    Async load routine for an image url.
     '''
-    async with aiohttp.ClientSession() as session:
-        client = Storage(session=session)
+    if url.startswith('http'):
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            response = await session.get(url)
+            assert response.status == 200
+            return await response.read()
+    else:
+        async with aiofiles.open(url, mode='rb') as afp:
+            return await afp.read()
 
-        async with open(src, mode='r') as f:
-            await client.upload(bucket, dst, f.read())
 
-
-async def gather_upload_routines(file_names, destinations, bucket):
+async def gather_load_routines(urls: List[str]):
     '''
-    Assemble a list of async upload routines for execution.
-    :param list file_names: List of string file locations, should match the length of destinations given.
-    :param list destinations: List of string file locations to save to a bucket, should match the length of file_names given.
-    :param string bucket: Name of the bucket to upload to.
+    Assemble a list of async load routines for execution.
+    '''
+    load_futures = [load_file(url) for url in urls]
+    return await asyncio.gather(*load_futures)
+
+
+def load(urls: List[str]):
+    '''
+    Bulk load a list of urls to their respective filename. Executes async routines for better performance.
+    '''
+    return asyncio.run(gather_load_routines(urls))
+
+
+async def upload_file(src: str, dst: str, bucket: str):
+    ''' Async upload routine for uploading an image to a google bucket. '''
+
+    async with aiofiles.open(src, mode='rb') as afp:
+        fobj = await afp.read()
+
+        async with aiohttp.ClientSession() as session:
+            storage = Storage(session=session)
+            status = await storage.upload(bucket, dst, fobj)
+            return src, dst
+
+
+async def gather_upload_routines(
+    file_names: List[str], destinations: List[str], bucket: str
+    ):
+    '''
+    Gather coroutines for async execution, returns an exception in case of network errors.
     '''
     upload_futures = [upload_file(src, dst, bucket) for src, dst in zip(file_names, destinations)]
-    return await asyncio.gather(*upload_futures)
+    return await asyncio.gather(*upload_futures, return_exceptions=True)
 
 
-def upload(file_names, destinations, bucket):
+def upload(
+    file_names: List[str], destinations: List[str], bucket: str
+    ):
     '''
     Bulk upload a list of files to a bucket. Executes async routines for better performance.
-    :param list file_names: List of string file locations, should match the length of destinations given.
-    :param list destinations: List of string file locations to save to a bucket, should match the length of file_names given.
-    :param string bucket: Name of the bucket to upload to.
     '''
-    asyncio.run(gather_upload_routines(file_names, destinations), bucket)
+    return asyncio.run(gather_upload_routines(file_names, destinations, bucket))
 
 
 # def upload(image, loc, bucket_name)
@@ -213,3 +234,66 @@ def load_image(image_location: str) -> Image:
     else:
         image = Image.open(image_location)
     return image
+
+
+def generate_download_signed_url_v4(bucket_name, blob_name):
+    """Generates a v4 signed URL for downloading a blob.
+
+    Note that this method requires a service account key file. You can not use
+    this if you are using Application Default Credentials from Google Compute
+    Engine or from the Google Cloud SDK.
+    """
+    # bucket_name = 'your-bucket-name'
+    # blob_name = 'your-object-name'
+
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+
+    url = blob.generate_signed_url(
+        version="v4",
+        # This URL is valid for 15 minutes
+        expiration=datetime.timedelta(minutes=15),
+        # Allow GET requests using this URL.
+        method="GET",
+    )
+
+    return url
+
+
+def list_blobs_with_prefix(bucket_name, prefix):
+    '''
+    Gather json files under a specific bloc path in a bucket
+    '''
+
+    storage_client = storage.Client()
+
+    return storage_client.list_blobs(bucket_name, prefix=prefix)
+
+
+def json_annotation_blobs(bucket_name, prefix):
+    '''
+    Gather json files under a specific bloc path in a bucket
+    '''
+
+    storage_client = storage.Client()
+
+    blobs = storage_client.list_blobs(bucket_name, prefix=prefix)
+    
+    return [blob.name for blob in blobs if blob.name.endswith('.json')]
+
+
+def bulk_delete_from_bucket(bucket_name: str, blob_prefix: str):
+
+    storage_client = storage.Client()
+
+    blobs_to_delete = list_blobs_with_prefix(bucket_name, blob_prefix)
+    blobs_to_delete = [blob for blob in blobs_to_delete]
+
+    try:
+        with storage_client.batch():
+            for blob in blobs_to_delete:
+                blob.delete()
+    # For some reason the constructor exiting raises a ValueError
+    except ValueError:
+        pass
