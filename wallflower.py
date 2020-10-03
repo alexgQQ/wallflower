@@ -14,7 +14,7 @@ import io
 from collections import defaultdict
 from PIL import Image
 
-from app.clients import RedditClient, bulk_analyze, vision_image_properties
+from app.clients import RedditClient, bulk_analyze, vision_image_properties, MyImgurClient
 from app.db import Wallpaper, bulk_update_db_entries
 from app.elastic import upload_data, search as _search, put_mappings
 from app.utils import (
@@ -283,6 +283,28 @@ def from_reddit(limit=20):
     Wallpaper.insert_many(to_create).execute()
 
 
+def from_imgur(limit=20):
+
+    to_create = []
+    client = MyImgurClient()
+    for obj in client.favorited_galleries():
+        try:
+            Wallpaper.get(source_id=obj['id'])
+        except Wallpaper.DoesNotExist:
+            create_params = {
+                'guid': str(uuid.uuid4()),
+                'url': obj['link'],
+                'source_id': obj['id'],
+                'downloaded': False,
+                'extension': obj['link'].split('.')[-1],
+                'analyzed': False,
+                'source_type': 'imgur',
+                'size_in_bytes': int(requests.head(obj['link']).headers['Content-Length']),
+            }
+            to_create.append(create_params)
+    Wallpaper.insert_many(to_create).execute()
+
+
 def _download(limit=500, location=''):
     '''
     Download all images from the database that are not downloaded.
@@ -350,7 +372,8 @@ def pull(
     '''
     if not only_download:
         click.secho('Pulling images from Reddit...')
-        from_reddit(limit=limit)
+        from_imgur(limit=limit)
+        # from_reddit(limit=limit)
     if download or only_download:
         click.secho('Downloading images...')
         _download(limit=limit, location=image_dir)
