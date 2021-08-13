@@ -4,8 +4,10 @@ application code for interacting with the Imgur API
 
 import os
 import requests
+import logging
 
 from imgurpython import ImgurClient
+from app.config import supported_formats
 
 
 class MyImgurClient:
@@ -13,7 +15,10 @@ class MyImgurClient:
     Class for client interaction with the Imgur API.
     This makes use of the python client library: https://github.com/Imgur/imgurpython
     '''
-    def __init__(self):
+
+    source_type = 'imgur'
+
+    def __init__(self, *args, **kwargs):
 
         self.client_id = os.getenv('IMGUR_CLIENT_ID')
         self.client_secret = os.getenv('IMGUR_CLIENT_SECRET')
@@ -36,12 +41,29 @@ class MyImgurClient:
         '''
         count = 0
         for item in self.client.get_account_favorites('me'):
+            logging.info(f'Pulling image gallery - {item.id}')
             url = f'https://api.imgur.com/3/gallery/album/{item.id}'
             response = requests.get(
                 url, headers={'Authorization': f'Client-ID {self.client_id}'})
             data = response.json()
-            for image in data['data']['images']:
-                if count >= limit:
-                    break
+            image_data = data['data']['images']
+            logging.info(f'{len(image_data)} images found in gallery')
+            for image in image_data:
                 count += 1
                 yield image
+
+    @staticmethod
+    def to_db(obj):
+        ext = obj['type'].split('/')[-1]
+
+        return {
+            'url': obj['link'],
+            'source_id': obj['id'],
+            'extension': ext,
+            'source_type': MyImgurClient.source_type,
+            'active': ext in supported_formats,
+        }
+
+    def fetch(self, limit: int = 20):
+        for wallpaper in self.favorited_galleries(limit=limit):
+            yield self.to_db(wallpaper)

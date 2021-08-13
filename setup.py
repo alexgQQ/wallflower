@@ -1,9 +1,9 @@
 from setuptools import setup
 
 setup(
-    name='wallflower',
+    name='wallflower-cli',
     version='0.1',
-    py_modules=['wallflower'],
+    py_modules=['wallflower-cli'],
     install_requires=[
         'Click',
     ],

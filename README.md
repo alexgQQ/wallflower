@@ -15,7 +15,6 @@ Base configuration information.
 Use a `.env` file in the root of the app to load sesitive variable.
 
 `IMAGE_DIRECTORY` - Location to save and access image files.
-`DATABASE_LOCATION` - Location of sqlite db file.
 
 `REDDIT_CLIENT_ID` - Your client id issued by reddit.
 `REDDIT_CLIENT_SECRET` - Your client secret issued by reddit.
@@ -29,6 +28,19 @@ Use a `.env` file in the root of the app to load sesitive variable.
 
 `GOOGLE_APPLICATION_CREDENTIALS` (optional) - Location for GCP application credentials.
 
+### Database
+
+```bash
+# Start db fresh
+docker run -d --name db -v /data/db -p 27017:27017 mongo:latest
+
+# Halt db container but leave data
+docker stop db
+
+# Remove persistent db data
+docker rm db
+```
+
 ### Install & Run
 
 This will create a virtual environment and install the right dependencies to it.
@@ -40,20 +52,7 @@ pipenv shell
 pip install --editable .
 ```
 
-## Elastic Search
-
-Start an elasticsearch instance.
-```
-docker run --rm -d -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" docker.elastic.co/elasticsearch/elasticsearch:7.7.1
-```
-Create mappings for data types.
-```
-http PUT :9200/image @mapping.json
-```
-Upload the searchable information.
-```
-wallflower search --upload
-```
+TDOD: Something is busted with this install thats needs further invesitgation
 
 ## Code Quality
 

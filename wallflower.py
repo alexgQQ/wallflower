@@ -3,20 +3,23 @@ import os
 import uuid
 import time
 import numpy as np
-import vptree
 import requests
 import tempfile
 import json
 from typing import Optional
 import aiohttp
 import io
+import logging
 
 from collections import defaultdict
 from PIL import Image
+from datetime import datetime
+from multiprocessing import Pool, cpu_count
 
-from app.clients import RedditClient, bulk_analyze, vision_image_properties, MyImgurClient
-from app.db import Wallpaper, bulk_update_db_entries
-from app.elastic import upload_data, search as _search, put_mappings
+from app.clients.reddit import RedditClient
+from app.clients.vision import bulk_analyze, vision_image_properties
+from app.clients.imgur import MyImgurClient
+
 from app.utils import (
     download as async_download,
     media_path,
@@ -24,7 +27,7 @@ from app.utils import (
     hex_to_lab,
     to_hex,
     dhash,
-    convert_hash,
+    hex_to_lab,
     hamming,
     load_image,
     upload as async_upload,
@@ -33,54 +36,57 @@ from app.utils import (
     json_annotation_blobs,
     bulk_delete_from_bucket,
     load as async_load,
+    find_duplicates,
+)
+from app.mongo import Wallpaper as MGWallpaper, connect, color_search, bulk_update
+
+
+supported_formats = (
+    'jpeg', 'jpg', 'png',
 )
 
 
-def find_duplicates():
-
-    # Build a mapping of guids to image hashes for searching
-    query = Wallpaper.select(Wallpaper.dhash, Wallpaper.guid) \
-                     .where(Wallpaper.dhash != None) \
-                     .namedtuples()
-    hash_to_guid = {}
-    duplicates = {}
-
-    for entry in query:
-        image_hash = convert_hash(entry.dhash)
-        if image_hash in hash_to_guid:
-            duplicates[hash_to_guid[image_hash]] = [entry.guid]
-        else:
-            hash_to_guid[image_hash] = entry.guid
-    print(duplicates)
-    # Load a vantage point tree with a hamming distance search indexer
-    search_tree = vptree.VPTree(list(hash_to_guid.keys()), hamming)
-    duplicates = {}
-
-    # Find similar hashes for each image
-    for search_hash, search_guid in hash_to_guid.items():
-        results = search_tree.get_all_in_range(search_hash, 4)
-        results = sorted(results)
-        similar_guids = [hash_to_guid.get(_hash) for distance, _hash in results if _hash != search_hash]
-
-        if similar_guids:
-            duplicates[search_guid] = similar_guids
-
-    # Mark single images as duplicates
-    to_mark = []
-    check = {}
-    for found_duplicate, related_duplicates in duplicates.items():
-        if found_duplicate not in to_mark:
-            to_mark += related_duplicates
-            check[Wallpaper.get(guid=found_duplicate).url] = [obj.url for obj in Wallpaper.select().where(Wallpaper.guid.in_(related_duplicates))]
-
-    # update = Wallpaper.update(duplicate=True).where(Wallpaper.guid.in_(to_mark))
-    # update.execute()
-    return check
+def latest_from_reddit():
+    return MGWallpaper.objects(source_type=RedditClient.source_type) \
+                      .order_by('-created_date').first()
 
 
-def select_to_analyze(limit: int = 5):
-    query = Wallpaper.select().where(Wallpaper.analyzed == False).limit(limit)
-    return [entry for entry in query]
+def earliest_from_reddit():
+    return MGWallpaper.objects(source_type=RedditClient.source_type) \
+                      .order_by('+created_date').first()
+
+
+class ClientSerializer:
+
+    def __init__(self, client, client_kwargs={}, limit=10):
+        self.client = client(**client_kwargs)
+        self.limit = limit
+
+    def from_client(self, exclude_ids=[]):
+        to_create = []
+
+        for data in self.client.fetch(limit=self.limit):
+            if exclude_ids and data['source_id'] in exclude_ids:
+                continue
+            else:
+                data['guid'] = str(uuid.uuid4())
+                data['created_date'] = datetime.now()
+                data['updated_date'] = datetime.now()
+                to_create.append(MGWallpaper(**data))
+
+        logging.info(
+            f'Found {len(to_create)} images from {self.client.__class__}'
+        )
+        return to_create
+
+    def save(self):
+        existing_query = MGWallpaper.objects(source_type=self.client.source_type).only('source_id')
+        existing_ids = [obj.source_id for obj in existing_query]
+        doc_data = self.from_client(exclude_ids=existing_ids)
+        documents = MGWallpaper.objects().insert(doc_data)
+        logging.info(
+            f'Inserted {len(documents)} documents'
+        )
 
 
 def bulk_download_wallpapers(
@@ -102,8 +108,8 @@ def bulk_download_wallpapers(
         local_filepath = os.path.join(directory, guid_path)
 
         # Save files that are too large to be resized after download
-        if for_vision and wallpaper.size_in_bytes >= 10485760:
-            to_resize.append(local_filepath)
+        # if for_vision and wallpaper.size_in_bytes >= 10485760:
+        to_resize.append(local_filepath)
 
         local_filepaths.append(local_filepath)
         source_urls.append(wallpaper.url)
@@ -119,7 +125,7 @@ def bulk_download_wallpapers(
     return local_filepaths
 
 
-def analyze_image(image, image_size):
+def analyze_image(image):
     '''
     Gather information on an image for search organization.
     :param PIL.Image image: image to analyze.
@@ -127,21 +133,51 @@ def analyze_image(image, image_size):
                            the PIL.Image itself, should be gathered from the file itself.
     :return dict: Dictionary of analysis data.
     '''
-
     # Google vision api limits image sizes to 10MB
     # if image_size >= 10485760:
     #     image.thumbnail((1920, 1080), Image.ANTIALIAS)
 
     image.thumbnail((1920, 1080), Image.ANTIALIAS)
-    image_array = np.asarray(image)
-    _dhash = dhash(image_array)
-    properties = vision_image_properties(image)
+    # image.thumbnail((454, 256), Image.ANTIALIAS)
+    # image_array = np.asarray(image)
+    results = vision_image_properties(image)
+    image.convert("L")
+    gray_image_array = np.asarray(image)
+    _dhash = dhash(gray_image_array)
+    # colors, counts = common_colors(image_array, 5)
 
+    data = {}
+    analyzed = True
+    # try:
+    #     top_hex_colors = [to_hex(*color) for color in colors[:, :3]]
+    # except Exception as err:
+    #     logging.info(
+    #         f'Error converting colors to hex strings -- {err}'
+    #     )
+    #     top_hex_colors = None
+
+    # if top_hex_colors and len(top_hex_colors) >= 5:
+    #     try:
+    #         for n in range(5):
+    #             data[f'lab_color_{n}'] = list(hex_to_lab(top_hex_colors[n]))
+    #         analyzed = True
+    #     except Exception as err:
+    #         logging.info(
+    #             f'Error converting hex colors to lab -- {err}'
+    #         )
+    #         data[f'lab_color_{n}'] = None
+
+    # results = vision_image_properties(image)
+    data['top_labels'] = ','.join((obj.description for obj in results.label_annotations))
+    top_hex_colors = [
+        to_hex(int(color.color.red), int(color.color.green), int(color.color.blue))
+        for color in results.image_properties_annotation.dominant_colors.colors
+        ]
     return {
-        'dhash': _dhash,
-        'top_colors': ','.join(properties['colors']),
-        'top_labels': ','.join(properties['labels']),
-        'analyzed': True,
+        'dhash': str(_dhash),
+        'top_colors': top_hex_colors[:5],
+        'analyzed': analyzed,
+        **data,
     }
 
 
@@ -190,7 +226,7 @@ def bulk_analyze_images(limit: int = 20):
     bucket_name = 'pixelpopart-test'
     upload_dir = 'uploads'
     result_dir = 'batch_annotations'
-    models_to_analyze = select_to_analyze(limit=limit)
+    models_to_analyze = MGWallpaper.objects(active=True, analyzed=False).limit(limit)
     number_of_models = len(models_to_analyze)
 
     if number_of_models == 0:
@@ -220,7 +256,9 @@ def bulk_analyze_images(limit: int = 20):
         for blob in result_blobs
     ]
     annotation_data = read_bulk_annotations(download_urls)
-    bulk_update_db_entries(models_to_analyze, annotation_data, key_field='guid')
+
+    # MGWallpaper.objects(guid__in=annotation_data.keys()).all()
+
 
     # Load image data from urls to calculate the dhash
     # TODO: Should unify this with the download routine to limit loads
@@ -230,7 +268,8 @@ def bulk_analyze_images(limit: int = 20):
         guids.append(model.guid)
         source_urls.append(model.url)
 
-    for guid, data in zip(guids, async_load(source_urls)):
+    loaded, err = async_load(source_urls)
+    for guid, data in zip(guids, loaded):
         image_array = np.asarray(Image.open(io.BytesIO(data)))
         annotation_data[guid].update({
                 'dhash': dhash(image_array),
@@ -242,67 +281,43 @@ def bulk_analyze_images(limit: int = 20):
     bulk_delete_from_bucket(bucket_name, result_dir)
 
 
-def analyze(limit: int = 20):
+def analyze(limit: int = 20, batch: int = 100):
 
-    to_update = {}
-    models_to_analyze = select_to_analyze(limit=limit)
+    to_analyze = MGWallpaper.objects(active=True, analyzed=False) \
+                            .only('guid', 'url').limit(limit)
+    guids = []
+    results = []
+    for obj in to_analyze:
+        guids.append(obj.guid)
+        results.append(analyze_image(load_image(obj.url)))
 
-    with click.progressbar(models_to_analyze) as models:
-        for model in models:
-            try:
-                image = load_image(model.url)
-                to_update[model.id] = analyze_image(image, model.size_in_bytes)
-            except requests.exceptions.RequestException:
-                pass
+    to_write = dict(zip(guids, results))
+    bulk_update(to_write)
+    # number_of_full_runs = limit // batch
+    # leftover = limit % batch
+    # processes = cpu_count()
 
-    bulk_update_db_entries(models_to_analyze, to_update)
+    # def analyze_set(num):
+    #     to_analyze = MGWallpaper.objects(active=True, analyzed=False) \
+    #                             .only('guid', 'url').limit(num)
+    #     urls = []
+    #     guids = []
+    #     for obj in to_analyze:
+    #         urls.append(obj.url)
+    #         guids.append(obj.guid)
 
+    #     images, err = async_load(urls)
+    #     images = [Image.open(io.BytesIO(data)) for data in images]
+    #     with Pool(processes=processes) as pool:
+    #         data = pool.map(analyze_image, images)
+    #     to_write = dict(zip(guids, data))
+    #     bulk_update(to_write)
 
-def from_reddit(limit=20):
-    '''
-    Gather all images from saved reddit posts and load them into the database.
-    :param int limit: The number of reddit posts to pull.
-    '''
-    to_create = []
-    client = RedditClient()
-    for obj in client.saved_wallpapers(limit=limit):
-        try:
-            Wallpaper.get(reddit_id=obj.id)
-        except Wallpaper.DoesNotExist:
-            create_params = {
-                'guid': str(uuid.uuid4()),
-                'url': obj.url,
-                'source_id': obj.id,
-                'downloaded': False,
-                'extension': obj.url.split('.')[-1],
-                'analyzed': False,
-                'source_type': 'reddit',
-                'size_in_bytes': int(requests.head(obj.url).headers['Content-Length']),
-            }
-            to_create.append(create_params)
-    Wallpaper.insert_many(to_create).execute()
+    # if number_of_full_runs > 0:
+    #     for n in range(number_of_full_runs):
+    #         analyze_set(limit)
 
-
-def from_imgur(limit=20):
-
-    to_create = []
-    client = MyImgurClient()
-    for obj in client.favorited_galleries():
-        try:
-            Wallpaper.get(source_id=obj['id'])
-        except Wallpaper.DoesNotExist:
-            create_params = {
-                'guid': str(uuid.uuid4()),
-                'url': obj['link'],
-                'source_id': obj['id'],
-                'downloaded': False,
-                'extension': obj['link'].split('.')[-1],
-                'analyzed': False,
-                'source_type': 'imgur',
-                'size_in_bytes': int(requests.head(obj['link']).headers['Content-Length']),
-            }
-            to_create.append(create_params)
-    Wallpaper.insert_many(to_create).execute()
+    # analyze_set(leftover)
 
 
 def _download(limit=500, location=''):
@@ -312,13 +327,13 @@ def _download(limit=500, location=''):
     '''
     urls = []
     filenames = []
-    for wallpaper in Wallpaper.select().where(Wallpaper.downloaded == False).limit(limit):
-        filename = media_path(wallpaper.guid, wallpaper.extension, cdn_host=location)
+
+    for wallpaper in MGWallpaper.objects(active=True, downloaded=False).limit(limit):
+        filename = media_path(wallpaper.guid, wallpaper.extension, cdn_host=location, nested=False)
         filenames.append(filename)
         urls.append(wallpaper.url)
-        wallpaper.downloaded = True
-        wallpaper.save()
-    async_download(urls, filenames)
+
+    download_count, errors = async_download(urls, filenames)
 
 
 def validate_files(file_location):
@@ -329,7 +344,7 @@ def validate_files(file_location):
     :return int broken: The number of fixed files.
     '''
     broken = 0
-    for obj in Wallpaper.select():
+    for obj in MGWallpaper.objects.all():
         filename = media_path(obj.guid, obj.extension, cdn_host=file_location)
         exists = os.path.isfile(filename)
         if exists != obj.downloaded:
@@ -340,11 +355,13 @@ def validate_files(file_location):
 
 
 @click.group()
-@click.option('--debug/--no-debug', default=False)
+@click.option('-v', '--verbose', is_flag=True, default=False)
 @click.pass_context
-def cli(ctx, debug):
+def cli(ctx, verbose):
     ctx.ensure_object(dict)
-    ctx.obj['DEBUG'] = debug
+    ctx.obj['VERBOSE'] = verbose
+    if verbose:
+        logging.basicConfig(level=logging.INFO)
 
 
 @cli.command()
@@ -364,19 +381,48 @@ def cli(ctx, debug):
     '--only-download', is_flag=True, default=False,
     help='Only downlaod files currently known.', show_default=True,
     )
+@click.option(
+    '--source', type=click.Choice(['reddit', 'imgur', 'all'], case_sensitive=False),
+    help='Where to pull new images from.', show_default=True, default='all'
+    )
 @click.pass_context
 def pull(
-    ctx, limit, image_dir, download, only_download):
+    ctx, limit, image_dir, download, only_download, source):
     '''
     Pull image files from sources and download them.
     '''
+    source_type_map = {
+        'imgur': MyImgurClient,
+        'reddit': RedditClient,
+    }
+
+    client_kwargs = {
+        'after': latest_from_reddit(),
+    }
+
     if not only_download:
-        click.secho('Pulling images from Reddit...')
-        from_imgur(limit=limit)
-        # from_reddit(limit=limit)
+        if source == 'all':
+            source_types = list(source_type_map.keys())
+        else:
+            source_types = [source]
+
+        for source_type in source_types:
+            click.secho(f'Pulling images from {source_type}...')
+            serializer = ClientSerializer(
+                source_type_map[source_type], limit=limit, # client_kwargs=client_kwargs
+            )
+            serializer.save()
+
     if download or only_download:
-        click.secho('Downloading images...')
-        _download(limit=limit, location=image_dir)
+        click.secho(f'Downloading {limit} images...')
+        num_dowloaded, errored =_download(limit=limit, location=image_dir)
+        click.secho(f'Successfully downloaded {num_dowloaded} images')
+
+        # TODO: I should make custom exceptions to get gathered by the download
+        # routine to track the urls that failed or mark the related entries as bad
+        if errored:
+            click.secho(f'Error downloading {len(errored)} images')
+
     click.secho('Done!')
 
 
@@ -398,7 +444,7 @@ def pull(
     help='Find duplicate images.', show_default=True,
     )
 @click.option(
-    '--limit', default=0, type=int,
+    '--limit', default=5, type=int,
     show_default=True, help='Number of images to inspect',
     )
 @click.option(
@@ -415,11 +461,13 @@ def inspect(ctx, image_dir, image, reset, duplicates, limit, bulk):
         return
 
     if duplicates:
-        values = find_duplicates()
+        query = MGWallpaper.objects(active=True, dhash__ne=None).only('dhash', 'guid')
+        guid_to_hash = {obj.guid: int(obj.dhash) for obj in query}
+        duplicate_guids = find_duplicates(guid_to_hash)
         return
 
     if reset:
-        Wallpaper.update({'analyzed': False}).execute()
+        MGWallpaper.objects.update(analyzed=False)
         return
 
     click.secho(f'Analyzing {limit} files...')
@@ -454,7 +502,7 @@ def info(ctx, image_dir, image, validate, check_source):
     '''
 
     if validate:
-        total = len(Wallpaper)
+        total = MGWallpaper.objects.count()
         click.secho(f'Checking {total} files...')
         broken = validate_files(image_dir)
         if broken:
@@ -463,25 +511,23 @@ def info(ctx, image_dir, image, validate, check_source):
 
     if check_source:
         client = RedditClient()
-        from_reddit = Wallpaper.select().where(Wallpaper.source_type == 'reddit').count()
+        from_reddit = MGWallpaper.objects(source_type='reddit').count()
         in_reddit = client.check_status()
         click.secho('- Reddit Info -', bold=True, fg='red')
         click.secho(f'In Sync: {in_reddit == from_reddit}')
 
     if image:
         try:
-            image = Wallpaper.get(guid=image)
+            image = MGWallpaper.objects.get(guid=image)
             filename = media_path(image.guid, image.extension, cdn_host=image_dir)
             click.secho(filename)
-        except Wallpaper.DoesNotExist:
+        except MGWallpaper.DoesNotExist:
             click.secho('Image not found!', fg='red')
         return None
 
-    total = len(Wallpaper)
-    downloaded = Wallpaper.select().where(Wallpaper.downloaded == True).count()
-    analyzed = Wallpaper.select().where(Wallpaper.analyzed == True).count()
+    total = MGWallpaper.objects(active=True).count()
     click.secho('- Database Info -', bold=True)
-    click.secho(f'Total: {total}, Downloaded: {downloaded}, Analyzed: {analyzed}')
+    click.secho(f'Total: {total}')
 
 
 @cli.command()
@@ -493,36 +539,29 @@ def info(ctx, image_dir, image, validate, check_source):
     '--color', type=str, default=None,
     help='Hex color value to search.', show_default=True,
     )
-@click.option(
-    '--upload', is_flag=True, default=False,
-    help='Upload elasticsearch models.', show_default=True,
-    )
-@click.option(
-    '--mappings', is_flag=True, default=False,
-    help='Upload elasticsearch field mappings.', show_default=True,
-    )
 @click.pass_context
-def search(ctx, label, color, upload, mappings):
+def search(ctx, label, color):
     '''
-    Search elasticsearch instance with given info.
+    Search mongodb instance with given info.
     '''
-    if upload:
-        click.secho('Seeding elasticsearch...')
-        upload_data()
-        click.secho('Done!')
-        return
-
-    if mappings:
-        click.secho('Mapping elasticsearch fields...')
-        put_mappings()
-        click.secho('Done!')
-        return
-
     if color is not None:
-        value = hex_to_lab(color)
-        color = value[0,0,:]
+        guids = color_search(color)
+        query = MGWallpaper.objects(guid__in=guids).only('url')
+        print([obj.url for obj in query])
+        # value = hex_to_lab(color)
+        # color = value[0,0,:]
 
-    results = _search(lab_colors=color, label_keyword=label)
+    # results = _search(lab_colors=color, label_keyword=label)
 
-    for result in results['hits']['hits']:
-        click.secho(str(result['_source']['url']))
+    # for result in results['hits']['hits']:
+    #     click.secho(str(result['_source']['url']))
+
+
+@cli.command()
+def foobar():
+    
+    pass
+
+
+if __name__ == '__main__':
+    cli()
