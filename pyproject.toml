@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "wallflower-cli"
+version = "0.1.0"
+description = ""
+authors = ["alexgQQ <alex.grand@beatport.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.7,<3.10"
+praw = "^7.4.0"
+numpy = "^1.21.1"
+scipy = "^1.7.1"
+aiohttp = "^3.7.4"
+aiofiles = "^0.7.0"
+matplotlib = "^3.4.3"
+Pillow = "^8.3.1"
+google-cloud-vision = "^2.4.2"
+scikit-image = "^0.18.2"
+opencv-python = "^4.5.3"
+peewee = "^3.14.4"
+elasticsearch = "^7.14.0"
+colorama = "^0.4.4"
+gcloud-aio-storage = "^6.1.0"
+imgurpython = "^1.1.7"
+webcolors = "^1.11.1"
+ndjson = "^0.3.1"
+vptree = "^1.2"
+google-cloud-storage = "^1.42.0"
+mongoengine = "^0.23.1"
+setuptools = "^57.4.0"
+click = "^8.0.1"
+funcy = "^1.16"
+pymongo = "^3.12.0"
+dnspython = "^2.1.0"
+typing-extensions = "^3.10.0"
+python-dotenv = "^0.19.0"
+
+[tool.poetry.dev-dependencies]
+ipdb = "^0.13.9"
+pyinstrument = "^4.0.2"
+Pympler = "^0.9"
+pytest = "^6.2.4"
+mypy = "^0.910"
+pylint = "^2.9.6"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
