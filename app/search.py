@@ -1,10 +1,16 @@
 import vptree
 import numpy as np
 import cv2
+from io import BytesIO
+from PIL import Image
 from collections import defaultdict
 from typing import Type, List, Tuple
 from colormath.color_objects import LabColor, sRGBColor
 from colormath.color_conversions import convert_color
+
+from app.db import Wallpaper, create_session
+from app.utils import load
+from app.analyze import to_hex
 
 
 def hamming(a: int, b: int) -> int:
@@ -27,7 +33,8 @@ def lab_to_hex(lab_values: Tuple[float]) -> str:
     """
     Convert lab values to a freindly hex string of the form #AABBCC
     """
-    return convert_color(LabColor(lab_values), sRGBColor).get_rgb_hex()
+    # The `sRGBColor` class method `get_rgb_hex` gives a rather large hex value, maybe an error?
+    return to_hex(*convert_color(LabColor(*lab_values), sRGBColor).get_value_tuple())
 
 
 def find_nearest_colors(query_color: str, colors: List[str], n: int = 10) -> List[str]:
@@ -52,6 +59,14 @@ def dhash(image: np.array, hashSize: int = 8) -> int:
     resized = cv2.resize(image, (hashSize + 1, hashSize))
     diff = resized[:, 1:] > resized[:, :-1]
     return sum([2 ** i for (i, v) in enumerate(diff.flatten()) if v])
+
+
+def get_dhashes():
+    session = create_session()
+    urls = session.query(Wallpaper.source_url).all()
+    urls = [url[0] for url in urls]
+    images, _ = load(urls)
+    images = [np.asarray(Image.open(BytesIO(data)).convert('L')) for data in images]
 
 
 def find_duplicates(guid_to_hash: dict):
