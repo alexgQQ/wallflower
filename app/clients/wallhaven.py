@@ -2,14 +2,12 @@
 application code for interacting with the Wallhaven API
 """
 
-import os
 import requests
-import logging
 import time
 
 from functools import cached_property
 
-from app.config import supported_formats
+from app.config import config
 
 
 class MyWallhavenClient:
@@ -20,8 +18,11 @@ class MyWallhavenClient:
     source_type = 'wallhaven'
 
     def __init__(self, *args, **kwargs):
-        self.api_key = os.getenv('WALLHAVEN_API_KEY')
-        self.username = os.getenv('WALLHAVEN_USERNAME')
+        self.api_key = config.get('Wallhaven', 'ApiKey')
+        self.username = config.get('Wallhaven', 'Username')
+
+        assert self.api_key is not None, 'A ApiKey must be provided'
+        assert self.username is not None, 'A Username must be provided'
 
     def make_request(self, url, params={}):
         params['apikey'] = self.api_key
@@ -64,11 +65,11 @@ class MyWallhavenClient:
         ext = obj['file_type'].split('/')[-1]
 
         return {
-            'url': obj['path'],
+            'source_url': obj['path'],
             'source_id': obj['id'],
-            'extension': ext,
             'source_type': MyWallhavenClient.source_type,
-            'active': ext in supported_formats,
+            'image_type': ext,
+            'analyzed': False,
         }
 
     def fetch(self, limit: int = 20):

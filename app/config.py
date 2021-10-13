@@ -16,3 +16,7 @@ else:
     config['Wallhaven'] = defaultdict(None)
     with open(config_file, 'w') as configfile:
         config.write(configfile)
+
+supported_formats = (
+    'jpeg', 'jpg', 'png',
+)

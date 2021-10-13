@@ -2,12 +2,11 @@
 application code for interacting with the Imgur API
 """
 
-import os
 import requests
 import logging
 
 from imgurpython import ImgurClient
-from app.config import supported_formats
+from app.config import config
 
 
 class MyImgurClient:
@@ -20,10 +19,15 @@ class MyImgurClient:
 
     def __init__(self, *args, **kwargs):
 
-        self.client_id = os.getenv('IMGUR_CLIENT_ID')
-        self.client_secret = os.getenv('IMGUR_CLIENT_SECRET')
-        self.access_token = os.getenv('IMGUR_ACCESS_TOKEN')
-        self.refresh_token = os.getenv('IMGUR_REFRESH_TOKEN')
+        self.client_id = config.get('Imgur', 'ClientID')
+        self.client_secret = config.get('Imgur', 'ClientSecret')
+        self.access_token = config.get('Imgur', 'AccessToken')
+        self.refresh_token = config.get('Imgur', 'RefreshToken')
+
+        assert self.client_id is not None, 'A ClientID must be provided'
+        assert self.client_secret is not None, 'A ClientSecret must be provided'
+        assert self.access_token is not None, 'A AccessToken must be provided'
+        assert self.refresh_token is not None, 'A RefreshToken must be provided'
 
         # Note since access tokens expire after an hour,
         # only the refresh token is required (library handles autorefresh)
@@ -55,13 +59,12 @@ class MyImgurClient:
     @staticmethod
     def to_db(obj):
         ext = obj['type'].split('/')[-1]
-
         return {
-            'url': obj['link'],
+            'source_url': obj['link'],
             'source_id': obj['id'],
-            'extension': ext,
             'source_type': MyImgurClient.source_type,
-            'active': ext in supported_formats,
+            'image_type': ext,
+            'analyzed': False,
         }
 
     def fetch(self, limit: int = 20):

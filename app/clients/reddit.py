@@ -2,13 +2,10 @@
 application code for interacting with the Reddit API
 """
 
-import os
 import praw
 
 from funcy import compact
-from app.config import supported_formats
-from app.mongo import Wallpaper
-
+from app.config import config, supported_formats
 
 class RedditClient:
     '''
@@ -20,10 +17,16 @@ class RedditClient:
 
     def __init__(self, *args, **kwargs):
 
-        client_id = os.getenv('REDDIT_CLIENT_ID')
-        client_secret = os.getenv('REDDIT_CLIENT_SECRET')
-        username = os.getenv('REDDIT_USERNAME')
-        password = os.getenv('REDDIT_PASSWORD')
+        client_id = config.get('Reddit', 'ClientID')
+        client_secret = config.get('Reddit', 'ClientSecret')
+        username = config.get('Reddit', 'Username')
+        password = config.get('Reddit', 'Password')
+
+        assert client_id is not None, 'A ClientID must be provided'
+        assert client_secret is not None, 'A ClientSecret must be provided'
+        assert username is not None, 'A Username must be provided'
+        assert password is not None, 'A Password must be provided'
+
         user_agent = 'osx:wall-flower-cli:v0.0.1 (by /u/PocketBananna)'
 
         self.reddit = praw.Reddit(
@@ -58,21 +61,22 @@ class RedditClient:
             ext = supported_formats[found_frmt.index(True)]
 
         return {
-            'url': obj.url,
+            'source_url': obj.url,
             'source_id': obj.id,
-            'extension': ext,
             'source_type': RedditClient.source_type,
-            'active': ext in supported_formats,
+            'image_type': ext,
+            'analyzed': False,
         }
 
     def fetch(self, limit: int = 20):
-        for wallpaper in self.saved_wallpapers(limit=limit):
+        for wallpaper in self.saved_wallpapers():
             if getattr(wallpaper, 'is_gallery', False):
-                for entry in wallpaper.gallery_data['items']:
-                    image_id = entry['media_id']
-                    ext = wallpaper.media_metadata[image_id]['m']
-                    ext = ext.split('/')[-1]
-                    wallpaper.url = f'https://i.redd.it/{image_id}.{ext}'
-                    yield self.to_db(wallpaper)
+                pass
+                # for entry in wallpaper.gallery_data['items']:
+                #     image_id = entry['media_id']
+                #     ext = wallpaper.media_metadata[image_id]['m']
+                #     ext = ext.split('/')[-1]
+                #     wallpaper.url = f'https://i.redd.it/{image_id}.{ext}'
+                #     yield self.to_db(wallpaper)
             else:
                 yield self.to_db(wallpaper)
