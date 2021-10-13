@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from io import BytesIO
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from app.utils import load
 from app.db import (
     create_session, bulk_insert_colors, Wallpaper, bulk_update_wallpapers,
@@ -61,7 +61,7 @@ def analyze_image(image):
     colors = [to_hex(*color) for color in colors]
 
     return {
-        # 'dhash': dhash(gray_image_array),
+        'dhash': str(dhash(gray_image_array)),
         'width': width,
         'height': height,
         "analyzed": True,
@@ -83,7 +83,12 @@ def analyze(limit: int = 20, batch: int = 100):
             ids.append(obj.id)
 
         images, err = load(urls)
-        images = [Image.open(BytesIO(data)).convert('RGB') for data in images]
+        images = []
+        for data in images:
+            try:
+                images.append(Image.open(BytesIO(data)).convert('RGB'))
+            except UnidentifiedImageError:
+                pass
         with Pool(processes=processes) as pool:
             data = pool.map(analyze_image, images)
         to_update = []

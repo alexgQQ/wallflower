@@ -45,6 +45,7 @@ class Wallpaper(Base):
     source_type = Column(String, nullable=False)
     source_id = Column(String, nullable=True)
     source_url = Column(String, nullable=False)
+    dhash = Column(String, nullable=True)
     guid = Column(String, default=default_uuid, nullable=False)
     width = Column(Integer, nullable=True)
     height = Column(Integer, nullable=True)

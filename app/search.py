@@ -61,12 +61,12 @@ def dhash(image: np.array, hashSize: int = 8) -> int:
     return sum([2 ** i for (i, v) in enumerate(diff.flatten()) if v])
 
 
-def get_dhashes():
+def guids_to_hashes():
     session = create_session()
-    urls = session.query(Wallpaper.source_url).all()
-    urls = [url[0] for url in urls]
-    images, _ = load(urls)
-    images = [np.asarray(Image.open(BytesIO(data)).convert('L')) for data in images]
+    data = list(session.query(Wallpaper.guid, Wallpaper.dhash).filter(Wallpaper.dhash != None).all())
+    return {
+        obj[0]: obj[1] for obj in data
+    }
 
 
 def find_duplicates(guid_to_hash: dict):
