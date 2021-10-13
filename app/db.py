@@ -1,18 +1,29 @@
 from uuid import uuid4
 
+from app.config import config
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, create_engine
-from sqlalchemy.orm import relationship, sessionmaker, case
+from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 
 Base = declarative_base()
 
 
+def _create_engine():
+    db_file = config["Core"]["DatabaseLocation"]
+    return create_engine(f"sqlite:///{db_file}")
+
+
 def create_session():
-    engine = create_engine(f"sqlite://")
+    engine = _create_engine()
     Session = sessionmaker()
     Session.configure(bind=engine)
     return Session()
+
+
+def create_tables():
+    engine = _create_engine()
+    Base.metadata.create_all(engine)
 
 
 def default_uuid():
@@ -21,10 +32,10 @@ def default_uuid():
 
 class WallpaperColor(Base):
     __tablename__ = "wallpaper_color"
-    wallpaper_id = Column("wallpaper_id", Integer, ForeignKey("wallpapers.id"), primary_key=True, nullable=False)
-    color_id = Column("color_id", Integer, ForeignKey("colors.id"), primary_key=True, nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
+    wallpaper_id = Column("wallpaper_id", Integer, ForeignKey("wallpapers.id"), nullable=False)
+    color_value = Column(String, nullable=False)
     rank = Column("rank", Integer, nullable=False)
-    color = relationship("Color", back_populates="wallpapers")
     wallpaper = relationship("Wallpaper", back_populates="colors")
 
 
@@ -33,13 +44,12 @@ class Wallpaper(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     source_type = Column(String, nullable=False)
     source_id = Column(String, nullable=True)
-    source_url = Column(String, nullable=True)
+    source_url = Column(String, nullable=False)
     guid = Column(String, default=default_uuid, nullable=False)
-    width = Column(Integer)
-    height = Column(Integer)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
     image_type = Column(String, nullable=False)
-    dhash = Column(String)
-    analyzed = Column(Boolean)
+    analyzed = Column(Boolean, nullable=False)
     colors = relationship("WallpaperColor", back_populates="wallpaper")
 
     @property
@@ -47,29 +57,43 @@ class Wallpaper(Base):
         return f'{self.guid}.{self.image_type}'
 
 
-class Color(Base):
-    __tablename__ = "colors"
-    id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    value = Column(String, nullable=False)
-    wallpapers = relationship("WallpaperColor", back_populates="color")
-
-
 def wallpapers_by_color(session, colors):
-    return session.query(Wallpaper).join(Wallpaper.colors, WallpaperColor.color).filter(Color.value.in_(colors)).order_by(WallpaperColor.rank)
+    return session.query(Wallpaper).join(Wallpaper.colors).filter(WallpaperColor.color_value.in_(colors)).order_by(WallpaperColor.rank)
 
 
 def all_colors(session):
-    return [color.value for color in session.query(Color).all()]
+    return [color.color_value for color in session.query(WallpaperColor).all()]
 
 
-def create_wallpaper(session, data, colors):
+def bulk_update_wallpapers(session, mappings):
+    session.bulk_update_mappings(Wallpaper, mappings)
+    session.commit()
+
+
+def bulk_insert_wallpapers(session, mappings):
+    session.bulk_insert_mappings(Wallpaper, mappings)
+    session.commit()
+
+
+def bulk_insert_colors(session, wallpaper_to_colors):
+    mappings = []
+    for wallpaper_id, colors in wallpaper_to_colors.items():
+        for rank, color_value in enumerate(colors):
+            mappings.append({
+                "color_value": color_value,
+                "rank": rank,
+                "wallpaper_id": wallpaper_id,
+            })
+    session.bulk_insert_mappings(WallpaperColor, mappings)
+    session.commit()
+
+
+def create_wallpaper(session, data, colors=None):
     wallpaper = Wallpaper(**data)
-    for i, value in enumerate(colors):
-        join = WallpaperColor(rank=i)
-        color = Color(value=value)
-        join.color = color
-        wallpaper.colors.append(join)
-        session.add(color)
+    if colors:
+        for i, value in enumerate(colors):
+            join = WallpaperColor(rank=i, color_value=value)
+            wallpaper.colors.append(join)
     session.add(wallpaper)
     session.commit()
     return wallpaper
