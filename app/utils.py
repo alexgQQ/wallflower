@@ -126,6 +126,42 @@ def upload(
     return asyncio.run(gather_upload_routines(file_names, destinations, bucket))
 
 
+def bulk_download_wallpapers(
+    list_of_wallpapers: list, directory: str, for_vision: bool = False
+    ) -> list:
+    '''
+    Asyncronously download a set of Wallpaper models from their source url under the
+    given directory with their guid path. If `for_vision` is enabled, images that exceed
+    the Google Vision API image size will be resized.
+    '''
+
+    local_filepaths = []
+    source_urls = []
+    to_resize = []
+
+    for wallpaper in list_of_wallpapers:
+        # Build local filepath to save to
+        guid_path = media_path(wallpaper.guid, wallpaper.extension)
+        local_filepath = os.path.join(directory, guid_path)
+
+        # Save files that are too large to be resized after download
+        # if for_vision and wallpaper.size_in_bytes >= 10485760:
+        # to_resize.append(local_filepath)
+
+        local_filepaths.append(local_filepath)
+        source_urls.append(wallpaper.url)
+
+    download(source_urls, local_filepaths)
+
+    # TODO: See if there is a way to do this in memory with async
+    for each in to_resize:
+        image = load_image(each)
+        image.thumbnail((1920, 1080), Image.ANTIALIAS)
+        image.save(each)
+    
+    return local_filepaths
+
+
 # def upload(image, loc, bucket_name)
 #     storageClient = storage.Client()
 #     bucket = storageClient.get_bucket(bucket_name)
