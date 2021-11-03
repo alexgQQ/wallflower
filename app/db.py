@@ -1,13 +1,13 @@
 from uuid import uuid4
 
-from app.config import config
+from app.config import get_config
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, create_engine
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 
 Base = declarative_base()
-
+config = get_config()
 
 def _create_engine():
     db_file = config["Core"]["DatabaseLocation"]
@@ -56,6 +56,10 @@ class Wallpaper(Base):
     @property
     def filename(self):
         return f'{self.guid}.{self.image_type}'
+
+
+def all_wallpapers(session, limit):
+    return [color for color in session.query(Wallpaper).limit(limit).all()]
 
 
 def wallpapers_by_color(session, colors):

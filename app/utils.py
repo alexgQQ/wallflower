@@ -8,6 +8,7 @@ import aiofiles
 from gcloud.aio.storage import Storage
 from PIL import Image
 from typing import List, Tuple
+from functools import lru_cache
 
 
 async def download_file(url: str, dst: str):
@@ -58,41 +59,42 @@ def download(urls: List[str], filenames: List[str], retry: int = 2) -> Tuple[int
     return failed
 
 
-async def load_file(url: str):
-    '''
-    Async load routine for an image url.
-    '''
-    if url.startswith('http'):
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            response = await session.get(url)
-            assert response.status == 200
-            return await response.read()
-    else:
-        async with aiofiles.open(url, mode='rb') as afp:
-            return await afp.read()
+# @lru_cache(maxsize=None)
+# async def load_file(url: str):
+#     '''
+#     Async load routine for an image url.
+#     '''
+#     if url.startswith('http'):
+#         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+#             response = await session.get(url)
+#             assert response.status == 200
+#             return await response.read()
+#     else:
+#         async with aiofiles.open(url, mode='rb') as afp:
+#             return await afp.read()
 
 
-async def gather_load_routines(urls: List[str]):
-    '''
-    Assemble a list of async load routines for execution.
-    '''
-    load_futures = [load_file(url) for url in urls]
-    return await asyncio.gather(*load_futures, return_exceptions=True)
+# async def gather_load_routines(urls: List[str]):
+#     '''
+#     Assemble a list of async load routines for execution.
+#     '''
+#     load_futures = [load_file(url) for url in urls]
+#     return await asyncio.gather(*load_futures, return_exceptions=True)
 
 
-def load(urls: List[str]):
-    '''
-    Bulk load a list of urls to their respective filename. Executes async routines for better performance.
-    '''
-    data = asyncio.run(gather_load_routines(urls))
-    errors = []
-    success = []
-    for item in data:
-        if isinstance(item, Exception):
-            errors.append(item)
-        else:
-            success.append(item)
-    return success, errors
+# def load(urls: List[str]):
+#     '''
+#     Bulk load a list of urls to their respective filename. Executes async routines for better performance.
+#     '''
+#     data = asyncio.run(gather_load_routines(urls))
+#     errors = []
+#     success = []
+#     for item in data:
+#         if isinstance(item, Exception):
+#             errors.append(item)
+#         else:
+#             success.append(item)
+#     return success, errors
 
 
 async def upload_file(src: str, dst: str, bucket: str):
