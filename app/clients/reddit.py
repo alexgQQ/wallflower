@@ -5,7 +5,7 @@ application code for interacting with the Reddit API
 import praw
 
 from funcy import compact
-from app.config import config, supported_formats
+from app.config import get_config, supported_formats
 
 class RedditClient:
     '''
@@ -17,10 +17,11 @@ class RedditClient:
 
     def __init__(self, *args, **kwargs):
 
-        client_id = config.get('Reddit', 'ClientID')
-        client_secret = config.get('Reddit', 'ClientSecret')
-        username = config.get('Reddit', 'Username')
-        password = config.get('Reddit', 'Password')
+        config = get_config()
+        client_id = config.get('Reddit', 'clientid')
+        client_secret = config.get('Reddit', 'clientsecret')
+        username = config.get('Reddit', 'username')
+        password = config.get('Reddit', 'password')
 
         assert client_id is not None, 'A ClientID must be provided'
         assert client_secret is not None, 'A ClientSecret must be provided'

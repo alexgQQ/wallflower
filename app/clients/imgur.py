@@ -6,7 +6,7 @@ import requests
 import logging
 
 from imgurpython import ImgurClient
-from app.config import config
+from app.config import get_config
 
 
 class MyImgurClient:
@@ -19,10 +19,11 @@ class MyImgurClient:
 
     def __init__(self, *args, **kwargs):
 
-        self.client_id = config.get('Imgur', 'ClientID')
-        self.client_secret = config.get('Imgur', 'ClientSecret')
-        self.access_token = config.get('Imgur', 'AccessToken')
-        self.refresh_token = config.get('Imgur', 'RefreshToken')
+        config = get_config()
+        self.client_id = config.get('Imgur', 'clientid')
+        self.client_secret = config.get('Imgur', 'clientsecret')
+        self.access_token = config.get('Imgur', 'accesstoken')
+        self.refresh_token = config.get('Imgur', 'refreshtoken')
 
         assert self.client_id is not None, 'A ClientID must be provided'
         assert self.client_secret is not None, 'A ClientSecret must be provided'

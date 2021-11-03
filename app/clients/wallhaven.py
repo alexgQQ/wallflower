@@ -7,7 +7,7 @@ import time
 
 from functools import cached_property
 
-from app.config import config
+from app.config import get_config
 
 
 class MyWallhavenClient:
@@ -18,8 +18,10 @@ class MyWallhavenClient:
     source_type = 'wallhaven'
 
     def __init__(self, *args, **kwargs):
-        self.api_key = config.get('Wallhaven', 'ApiKey')
-        self.username = config.get('Wallhaven', 'Username')
+
+        config = get_config()
+        self.api_key = config.get('Wallhaven', 'apikey')
+        self.username = config.get('Wallhaven', 'username')
 
         assert self.api_key is not None, 'A ApiKey must be provided'
         assert self.username is not None, 'A Username must be provided'
