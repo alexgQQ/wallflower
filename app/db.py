@@ -51,6 +51,7 @@ class Wallpaper(Base):
     height = Column(Integer, nullable=True)
     image_type = Column(String, nullable=False)
     analyzed = Column(Boolean, nullable=False)
+    downloaded = Column(Boolean, default=False, nullable=False)
     colors = relationship("WallpaperColor", back_populates="wallpaper")
 
     @property
@@ -59,8 +60,10 @@ class Wallpaper(Base):
 
 
 def all_wallpapers(session, limit):
-    return [color for color in session.query(Wallpaper).limit(limit).all()]
+    return [wallpaper for wallpaper in session.query(Wallpaper).limit(limit).all()]
 
+def not_downloaded(session, limit):
+    return [wallpaper for wallpaper in session.query(Wallpaper).filter(Wallpaper.downloaded == False).limit(limit).all()]
 
 def wallpapers_by_color(session, colors):
     return session.query(Wallpaper).join(Wallpaper.colors).filter(WallpaperColor.color_value.in_(colors)).order_by(WallpaperColor.rank)

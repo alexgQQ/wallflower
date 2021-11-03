@@ -161,12 +161,7 @@
 #     cli()
 
 from PyQt5 import QtWidgets
-from PyQt5.QtGui import QIcon, QPixmap, QImage
-from PyQt5.QtCore import QTimer
-from app.qt.main_window import Ui_MainWindow
-from time import sleep
-from threading import Timer
-# from app.config import config
+from app.gui.main_window import Ui_MainWindow
 
 
 if __name__ == "__main__":
