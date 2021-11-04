@@ -1,56 +1,9 @@
-from PyQt5.QtWidgets import QListWidget, QListWidgetItem, QListView
+from PyQt5.QtWidgets import QListWidget, QListWidgetItem, QListView, QAbstractItemView
 from PyQt5.QtGui import QIcon, QPixmap, QImage
 from PyQt5.QtCore import QSize, QTimer
 import io
 from PIL import Image
-
-import asyncio
-import aiohttp
-import aiofiles
-from PIL import Image
-from typing import List
-from functools import lru_cache
-
-
-# TODO: For some reason importiung this from utils make the app crash
-# should try to fix and make this a util import as it is used in other spots
-@lru_cache(maxsize=None)
-async def load_file(url: str):
-    '''
-    Async load routine for an image url.
-    '''
-    if url.startswith('http'):
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            response = await session.get(url)
-            assert response.status == 200
-            return await response.read()
-    else:
-        async with aiofiles.open(url, mode='rb') as afp:
-            return await afp.read()
-
-
-async def gather_load_routines(urls: List[str]):
-    '''
-    Assemble a list of async load routines for execution.
-    '''
-    load_futures = [load_file(url) for url in urls]
-    return await asyncio.gather(*load_futures, return_exceptions=True)
-
-
-def load(urls: List[str]):
-    '''
-    Bulk load a list of urls to their respective filename. Executes async routines for better performance.
-    '''
-    data = asyncio.run(gather_load_routines(urls))
-    errors = []
-    success = []
-    for item in data:
-        if isinstance(item, Exception):
-            errors.append(item)
-            success.append(None)
-        else:
-            success.append(item)
-    return success, errors
+from app.async_utils import load
 
 
 def create_icon(image_data):
@@ -69,6 +22,7 @@ class ImageList(QListWidget):
     def setup_ui(self):
         self.setViewMode(QListView.IconMode)
         self.setIconSize(QSize(128, 128))
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
     #     self.timer = QTimer(self)
     #     self.timer.timeout.connect(self.foobar)
     #     self.timer.start(5000)
