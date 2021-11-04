@@ -16,7 +16,8 @@ from google.cloud.vision import Image as GImage, ImageAnnotatorClient
 from google.cloud.vision import Feature
 from google.cloud import storage
 
-from app.utils import to_hex, download, upload, load, bulk_download_wallpapers, media_path
+from app.utils import to_hex, bulk_download_wallpapers, media_path
+from app.async_utils import download, upload, load
 from app.db import Wallpaper, create_session
 from app.analyze import dhash
 

@@ -162,14 +162,17 @@
 
 from PyQt5 import QtWidgets
 from app.gui.main_window import Ui_MainWindow
-
+import os
+import sys
 
 if __name__ == "__main__":
-    import sys
+    # opencv has a built in qt binary that it attempts to load on import
+    # removing the plugin path for opencv fixes the issue
+    # https://stackoverflow.com/a/67863156
+    os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH")
     app = QtWidgets.QApplication(sys.argv)
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
     ui.setupUi(MainWindow)
     MainWindow.show()
     sys.exit(app.exec_())
-

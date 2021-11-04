@@ -5,7 +5,7 @@ import numpy as np
 
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
-from app.utils import load
+from app.async_utils import load
 from app.db import (
     create_session, bulk_insert_colors, Wallpaper, bulk_update_wallpapers,
 )
