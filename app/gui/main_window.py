@@ -4,8 +4,8 @@ from app.gui.settings_dialog import Ui_Dialog
 from app.gui.image_list import ImageList
 from app.db import all_wallpapers, create_session, bulk_update_wallpapers, not_downloaded
 from app.async_utils import download as async_download
+from app.analyze import analyze
 from app.config import get_config
-from time import sleep
 
 
 class MyDialog(QtWidgets.QDialog):
@@ -58,6 +58,7 @@ class Ui_MainWindow(object):
 
         self.actionPreferences.triggered.connect(self.showPreferences)
         self.actionDownload.triggered.connect(self.download)
+        self.actionAnalyze.triggered.connect(self.analyze_images)
 
         self.retranslateUi(MainWindow)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
@@ -122,3 +123,13 @@ class Ui_MainWindow(object):
         diag.setValue(100)
         diag.close()
 
+    def analyze_images(self):
+        diag = QtWidgets.QProgressDialog("Analyzing", "Cancel", 0, 100, self.window)
+        diag.setModal(True)
+
+        def step_update(num):
+            diag.setValue(num)
+
+        diag.show()
+        analyze(17, 5, step_callback=step_update)
+        diag.close()

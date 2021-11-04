@@ -68,7 +68,7 @@ def analyze_image(image):
     }, colors
 
 
-def analyze(limit: int = 20, batch: int = 100):
+def analyze(limit: int = 20, batch: int = 100, step_callback=None):
     number_of_full_runs = limit // batch
     leftover = limit % batch
     processes = cpu_count()
@@ -102,7 +102,9 @@ def analyze(limit: int = 20, batch: int = 100):
         bulk_insert_colors(session, wallpaper_to_colors)
 
     if number_of_full_runs > 0:
-        for _ in range(number_of_full_runs):
+        for i in range(number_of_full_runs):
             analyze_set(limit)
+            if step_callback is not None:
+                step_callback((i / number_of_full_runs) * 100)
 
     analyze_set(leftover)
