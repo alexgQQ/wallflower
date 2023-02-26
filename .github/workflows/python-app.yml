@@ -24,6 +24,6 @@ jobs:
     - name: Install Dependencies
       run: |
         poetry config virtualenvs.create false --local
-        poetry install .
+        poetry install
     - name: Build binary
       run: pyinstaller --onefile main.py
