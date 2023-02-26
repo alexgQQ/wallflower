@@ -47,7 +47,7 @@ def mock_wallpaper_data():
     return {
         "source_type": fake.word(),
         "source_id": fake.md5(),
-        "source_url": fake.image_url(),
+        "source_uri": fake.image_url(),
         "analyzed": True,
         "image_type": choice(('png', 'jpg', 'jpeg')),
     }

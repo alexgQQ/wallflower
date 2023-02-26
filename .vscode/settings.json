@@ -1,0 +1,11 @@
+{
+    "terminal.integrated.env.linux": {
+        "WALLFLOWER_DEBUG": "1"
+    },
+    "terminal.integrated.env.osx": {
+        "WALLFLOWER_DEBUG": "1"
+    },
+    "terminal.integrated.env.windows": {
+        "WALLFLOWER_DEBUG": "1"
+    }
+}

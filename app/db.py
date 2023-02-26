@@ -1,17 +1,17 @@
-from uuid import uuid4
+from typing import Dict, List, Optional, Tuple, TypedDict
 
-from app.config import get_config
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, create_engine
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy import REAL, Boolean, Column, ForeignKey, Integer, String, create_engine
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Query, relationship, sessionmaker
+from sqlalchemy.sql.expression import cast
 
+from app.config import config
 
 Base = declarative_base()
-config = get_config()
+
 
 def _create_engine():
-    db_file = config["Core"]["DatabaseLocation"]
-    return create_engine(f"sqlite:///{db_file}")
+    return create_engine(f"sqlite:///{config.core.db_loc}")
 
 
 def create_session():
@@ -26,82 +26,202 @@ def create_tables():
     Base.metadata.create_all(engine)
 
 
-def default_uuid():
-    return str(uuid4())
-
-
 class WallpaperColor(Base):
     __tablename__ = "wallpaper_color"
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    wallpaper_id = Column("wallpaper_id", Integer, ForeignKey("wallpapers.id"), nullable=False)
-    color_value = Column(String, nullable=False)
+    wallpaper_id = Column(
+        "wallpaper_id", Integer, ForeignKey("wallpapers.id"), nullable=False
+    )
+    color_value = Column(Integer, nullable=False)
     rank = Column("rank", Integer, nullable=False)
     wallpaper = relationship("Wallpaper", back_populates="colors")
 
 
+# TODO: Should I make the type fields enums or choice fields?
 class Wallpaper(Base):
     __tablename__ = "wallpapers"
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     source_type = Column(String, nullable=False)
-    source_id = Column(String, nullable=True)
-    source_url = Column(String, nullable=False)
+    source_id = Column(String, nullable=False)
+    source_uri = Column(String, nullable=False)
     dhash = Column(String, nullable=True)
-    guid = Column(String, default=default_uuid, nullable=False)
+    file_ctime = Column(Integer, nullable=True)
     width = Column(Integer, nullable=True)
     height = Column(Integer, nullable=True)
     image_type = Column(String, nullable=False)
     analyzed = Column(Boolean, nullable=False)
-    downloaded = Column(Boolean, default=False, nullable=False)
+    duplicate = Column(Boolean, nullable=False, default=False)
     colors = relationship("WallpaperColor", back_populates="wallpaper")
 
     @property
-    def filename(self):
-        return f'{self.guid}.{self.image_type}'
+    def filename(self) -> str:
+        return f"{self.source_id}.{self.image_type}"
+
+    @property
+    def src_path(self) -> str:
+        if self.source_type == "local":
+            return f"{self.source_uri}/{self.filename}"
+        else:
+            return self.source_uri
+
+    @property
+    def download_path(self) -> str:
+        return f"{config.core.download_loc}/{self.filename}"
 
 
-def all_wallpapers(session, limit):
-    return [wallpaper for wallpaper in session.query(Wallpaper).limit(limit).all()]
-
-def not_downloaded(session, limit):
-    return [wallpaper for wallpaper in session.query(Wallpaper).filter(Wallpaper.downloaded == False).limit(limit).all()]
-
-def wallpapers_by_color(session, colors):
-    return session.query(Wallpaper).join(Wallpaper.colors).filter(WallpaperColor.color_value.in_(colors)).order_by(WallpaperColor.rank)
-
-
-def all_colors(session):
-    return [color.color_value for color in session.query(WallpaperColor).all()]
+class QueryDict(TypedDict):
+    # TODO: Update python ver to allow | syntax!
+    # Also its unclear if order matters with the query calls
+    # especially with the join on color search
+    #  OrderedDict ¯\_(ツ)_/¯
+    ids: Optional[List[int]]
+    colors: Optional[List[int]]
+    source_types: Optional[List[str]]
+    aspect_ratio: Optional[float]
 
 
-def bulk_update_wallpapers(session, mappings):
-    session.bulk_update_mappings(Wallpaper, mappings)
-    session.commit()
+class WallpaperQuery:
+    """Helper class to handle varying combinations of queries"""
+
+    def __init__(self, query_data: QueryDict):
+        self.query = Query([Wallpaper])
+
+        for key, value in query_data.items():
+            if value is None:
+                continue
+            func = getattr(self, f"by_{key}")
+            self.query = func(value)
+
+    def by_colors(self, colors: List[int]) -> Query:
+        return (
+            self.query.join(Wallpaper.colors)
+            .filter(WallpaperColor.color_value.in_(colors))
+            .order_by(WallpaperColor.rank)
+        )
+
+    def by_ids(self, ids: List[int]) -> Query:
+        return self.query.filter(Wallpaper.id.in_(ids))
+
+    def by_source_types(self, source_types: List[str]) -> Query:
+        return self.query.filter(Wallpaper.source_type.in_(source_types))
+
+    def by_aspect_ratio(self, aspect_ratio: float) -> Query:
+        # Cast one value to promote filter to a float type
+        # TODO: this may cause precision issues as 16:9 = 1.77777777777
+        # and depending on rounding something like 1.78 may get missed
+        return self.query.filter(
+            (cast(Wallpaper.width, REAL) / Wallpaper.height) == aspect_ratio
+        )
+
+    def __call__(self, limit: int = 10) -> List[Wallpaper]:
+        with create_session() as session:
+            return (
+                self.query.with_session(session)
+                .filter(Wallpaper.duplicate == False)
+                .limit(limit)
+                .all()
+            )
 
 
-def bulk_insert_wallpapers(session, mappings):
-    session.bulk_insert_mappings(Wallpaper, mappings)
-    session.commit()
+def all_local_wallpapers(limit: int) -> List[Wallpaper]:
+    with create_session() as session:
+        query = (
+            session.query(Wallpaper)
+            .filter(Wallpaper.source_type == "local")
+            .limit(limit)
+            .all()
+        )
+    return query
 
 
-def bulk_insert_colors(session, wallpaper_to_colors):
-    mappings = []
-    for wallpaper_id, colors in wallpaper_to_colors.items():
-        for rank, color_value in enumerate(colors):
-            mappings.append({
-                "color_value": color_value,
-                "rank": rank,
-                "wallpaper_id": wallpaper_id,
-            })
-    session.bulk_insert_mappings(WallpaperColor, mappings)
-    session.commit()
+# TODO: I'd like some way to handle client paging instead
+# of gathering source ids to check against when pulling images.
+# This is tricky because each api has its own rules/paradigms for paging
+# but possibly I could store a `cursor` value to track where each source is?
+def source_ids_by_type(source_type: str) -> Tuple[str]:
+    with create_session() as session:
+        query = (
+            session.query(Wallpaper.source_id)
+            .filter(Wallpaper.source_type == source_type)
+            .all()
+        )
+    return tuple(entry[0] for entry in query)
 
 
-def create_wallpaper(session, data, colors=None):
-    wallpaper = Wallpaper(**data)
-    if colors:
-        for i, value in enumerate(colors):
-            join = WallpaperColor(rank=i, color_value=value)
-            wallpaper.colors.append(join)
-    session.add(wallpaper)
-    session.commit()
+def wallpaper_by_id(_id: int) -> Wallpaper:
+    with create_session() as session:
+        query = session.query(Wallpaper).filter(Wallpaper.id == _id)
+    return query.one()
+
+
+# TODO: Query limits exist, I'm not sure what it would be here
+# but if the colors get large enough it may fail
+def all_colors() -> List[Tuple[int]]:
+    with create_session() as session:
+        query = session.query(WallpaperColor.color_value).distinct().all()
+    return query
+
+
+class InsertMapping(TypedDict):
+    source_type: str
+    source_id: str
+    source_uri: str
+    image_type: str
+    analyzed: bool
+
+
+class UpdateMapping(TypedDict):
+    id: int
+    dhash: str
+    width: int
+    height: int
+    analyzed: bool
+
+
+def bulk_insert_wallpapers(mappings: List[InsertMapping]):
+    with create_session() as session:
+        session.bulk_insert_mappings(Wallpaper, mappings)
+        session.commit()
+
+
+def bulk_update_wallpapers(mappings: List[UpdateMapping]):
+    with create_session() as session:
+        session.bulk_update_mappings(Wallpaper, mappings)
+        session.commit()
+
+
+def bulk_insert_colors(wallpaper_to_colors: Dict[int, List[int]]):
+    with create_session() as session:
+        mappings = []
+        for wallpaper_id, colors in wallpaper_to_colors.items():
+            for rank, color_value in enumerate(colors):
+                mappings.append(
+                    {
+                        "color_value": color_value,
+                        "rank": rank,
+                        "wallpaper_id": wallpaper_id,
+                    }
+                )
+        session.bulk_insert_mappings(WallpaperColor, mappings)
+        session.commit()
+
+
+def set_duplicate(ids: List[int]):
+    with create_session() as session:
+        session.query(Wallpaper).filter(Wallpaper.id.in_(ids)).update(
+            {Wallpaper.duplicate: True}
+        )
+        session.commit()
+
+
+# TODO: This is only used in tests, remove?
+def create_wallpaper(data, colors=None):
+    with create_session() as session:
+        wallpaper = Wallpaper(**data)
+        if colors:
+            for i, value in enumerate(colors):
+                join = WallpaperColor(rank=i, color_value=value)
+                wallpaper.colors.append(join)
+        session.add(wallpaper)
+        session.commit()
     return wallpaper

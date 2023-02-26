@@ -1,20 +1,32 @@
+import logging
+import math
+import os
+from collections import defaultdict
+from multiprocessing import Pool, cpu_count
 from typing import List
-import scipy
+
 import cv2
 import numpy as np
+from PIL import Image
 
-from io import BytesIO
-from PIL import Image, UnidentifiedImageError
 from app.async_utils import load
+from app.clients import MyImgurClient, MyWallhavenClient, RedditClient
+from app.config import config
 from app.db import (
-    create_session, bulk_insert_colors, Wallpaper, bulk_update_wallpapers,
+    Wallpaper,
+    all_local_wallpapers,
+    bulk_insert_colors,
+    bulk_insert_wallpapers,
+    bulk_update_wallpapers,
+    create_session,
 )
-from multiprocessing import Pool, cpu_count
+
+logger = logging.getLogger(__name__)
 
 
 def to_hex(red: int, green: int, blue: int) -> str:
-    """ Convert 0-255 RGB values to a hex color string """
-    return f'{int(red):02x}{int(green):02x}{int(blue):02x}'
+    """Convert 0-255 RGB values to a hex color string"""
+    return int(f"{int(red):02x}{int(green):02x}{int(blue):02x}", 16)
 
 
 def dhash(image: np.array, hashSize: int = 8) -> int:
@@ -25,22 +37,20 @@ def dhash(image: np.array, hashSize: int = 8) -> int:
     """
     resized = cv2.resize(image, (hashSize + 1, hashSize))
     diff = resized[:, 1:] > resized[:, :-1]
-    return sum([2 ** i for (i, v) in enumerate(diff.flatten()) if v])
+    return sum([2**i for (i, v) in enumerate(diff.flatten()) if v])
 
 
-def common_colors(image: np.array, num_of_clusters: int = 5) -> List[str]:
-    """
-    param image: np.array of colored image data, should be at least 3 dimensions
-    param num_of_clusters: integer for the number of colors to find
-    return dict: dictionary of color counts keyed from the color value
-    """
-    width, height, channels = image.shape
-    image = image.reshape(
-        scipy.product((width, height)), channels).astype(float)
-    codes, _ = scipy.cluster.vq.kmeans(image, num_of_clusters)
-    vecs, _ = scipy.cluster.vq.vq(image, codes)
-    counts, _ = scipy.histogram(vecs, len(codes))
-    return list(zip(*sorted(zip(codes, counts), key=lambda x: x[1], reverse=True)))[0]
+# TODO: Dear god this hurts to look at
+def common_colors(image: np.array, n_colors: int = 5) -> List[str]:
+    """Gather an ordered list of the most common colors in an image array"""
+    pixels = np.float32(image.reshape(-1, 3))
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 200, 0.1)
+    flags = cv2.KMEANS_RANDOM_CENTERS
+    _, labels, palette = cv2.kmeans(pixels, n_colors, None, criteria, 10, flags)
+    _, counts = np.unique(labels, return_counts=True)
+    return list(
+        zip(*sorted(zip(palette.astype(int), counts), key=lambda x: x[1], reverse=True))
+    )[0]
 
 
 def analyze_image(image):
@@ -53,7 +63,9 @@ def analyze_image(image):
     """
 
     width, height = image.size
-    image.thumbnail((1920, 1080), Image.ANTIALIAS)
+    # TODO: Random values but thumbnail resizes with respect to aspect ratio
+    #       what is the best size for speed vs accuracy tho?
+    image.thumbnail((480, 270), Image.ANTIALIAS)
     image_array = np.asarray(image)
     image.convert("L")
     gray_image_array = np.asarray(image)
@@ -61,50 +73,156 @@ def analyze_image(image):
     colors = [to_hex(*color) for color in colors]
 
     return {
-        'dhash': str(dhash(gray_image_array)),
-        'width': width,
-        'height': height,
+        "dhash": str(dhash(gray_image_array)),
+        "width": width,
+        "height": height,
         "analyzed": True,
     }, colors
 
 
-def analyze(limit: int = 20, batch: int = 100, step_callback=None):
-    number_of_full_runs = limit // batch
-    leftover = limit % batch
-    processes = cpu_count()
-    session = create_session()
+def scan_local_images():
+    """Check local source for file changes and add/remove as needed"""
+    # Get all known local entries and group by their dirs
+    stored_sets = defaultdict(set)
+    for wallpaper in all_local_wallpapers(2000):
+        stored_sets[wallpaper.source_uri].add(
+            (wallpaper.filename, wallpaper.file_ctime)
+        )
 
-    def analyze_set(num):
-        to_analyze = session.query(Wallpaper).filter(Wallpaper.analyzed == False).limit(num).all()
-        urls = []
-        ids = []
-        for obj in to_analyze:
-            urls.append(obj.source_url)
-            ids.append(obj.id)
+    # Scan filesystem for images and group by their dirs
+    found_sets = defaultdict(set)
+    for image_dir in config.core.image_dirs:
+        for file in os.listdir(image_dir):
+            fullpath = os.path.join(image_dir, file)
+            if os.path.isfile(fullpath):  # TODO: and is an image
+                stat = os.stat(fullpath)
+                filename, ext = os.path.splitext(file)
+                found_sets[image_dir].add((f"{filename}{ext}", int(stat.st_ctime)))
 
-        images, err = load(urls)
-        images = []
-        for data in images:
-            try:
-                images.append(Image.open(BytesIO(data)).convert('RGB'))
-            except UnidentifiedImageError:
-                pass
-        with Pool(processes=processes) as pool:
-            data = pool.map(analyze_image, images)
-        to_update = []
-        wallpaper_to_colors = {}
-        for id, obj in zip(ids, data):
-            entry = obj[0]
-            colors = obj[1]
-            to_update.append({ "id": id, **entry })
-            wallpaper_to_colors[id] = colors
-        bulk_update_wallpapers(session, to_update)
-        bulk_insert_colors(session, wallpaper_to_colors)
+    for image_dir in config.core.image_dirs:
+        added = found_sets[image_dir] - stored_sets[image_dir]
+        removed = stored_sets[image_dir] - found_sets[image_dir]
 
-    if number_of_full_runs > 0:
-        for i in range(number_of_full_runs):
-            analyze_set(limit)
-            if step_callback is not None:
-                step_callback((i / number_of_full_runs) * 100)
+        to_add = []
+        for file in added:
+            file, ctime = file
+            filename, ext = os.path.splitext(file)
+            to_add.append(
+                {
+                    "source_uri": image_dir,
+                    "source_id": filename[:-1],
+                    "source_type": "local",
+                    "image_type": ext[1:],
+                    "analyzed": False,
+                    "file_ctime": ctime,
+                }
+            )
+        if to_add:
+            bulk_insert_wallpapers(to_add)
 
-    analyze_set(leftover)
+        # TODO: This will not scale great, make a bulk routine?
+        for file in removed:
+            file, ctime = file
+            with create_session() as session:
+                session.query(Wallpaper).filter(
+                    Wallpaper.source_type == "local"
+                    and Wallpaper.source_id == file
+                    and Wallpaper.file_ctime == ctime
+                ).delete(synchronize_session=False)
+                session.commit()
+
+    return len(to_add)
+
+
+class Crawler:
+    def __init__(self):
+        self.clients = (RedditClient, MyImgurClient, MyWallhavenClient)
+        self.client = self.clients[0]
+        self._cancel = False
+
+    def cancel(self):
+        self.client.cancel = True
+        self._cancel = True
+        logger.info(f"Canceling Crawler run")
+
+    def __call__(self, limit: int):
+        new_images = 0
+        new_images += scan_local_images()
+        for client_cls in self.clients:
+            if self._cancel:
+                break
+            self.client = client_cls()
+            data = [entry for entry in self.client.fetch(limit)]
+            bulk_insert_wallpapers(data)
+            new_images += len(data)
+        return new_images
+
+
+class Inspector:
+    def __init__(self):
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
+        logger.info(f"Canceling Inspector run")
+
+    def __call__(self, limit: int = 20, batch: int = 100, step_callback=None):
+        number_of_full_runs = limit // batch
+        leftover = limit % batch
+        processes = cpu_count()
+
+        def analyze_set(num):
+            with create_session() as session:
+                to_analyze = (
+                    session.query(Wallpaper)
+                    .filter(Wallpaper.analyzed == False)
+                    .limit(num)
+                    .all()
+                )
+            uris = []
+            _ids = []
+            for obj in to_analyze:
+                uris.append(obj.src_path)
+                _ids.append(obj.id)
+
+            if self._cancel:
+                return
+
+            image_data, err = load(uris, timeout=60)
+            images = []
+            ids = []
+            for ix, data in enumerate(image_data):
+                # An image failed to load so we must account for the ids
+                if data is None:
+                    pass
+                else:
+                    ids.append(_ids[ix])
+                    images.append(data.convert("RGB"))
+
+            # Speeds up processing but strains resources
+            with Pool(processes=processes) as pool:
+                data = pool.map(analyze_image, images)
+
+            to_update = []
+            wallpaper_to_colors = {}
+            for id, obj in zip(ids, data):
+                entry, colors = obj
+                to_update.append({"id": id, **entry})
+                wallpaper_to_colors[id] = colors
+
+            bulk_update_wallpapers(to_update)
+            bulk_insert_colors(wallpaper_to_colors)
+
+        if number_of_full_runs > 0:
+            for i in range(number_of_full_runs):
+                if self._cancel:
+                    return
+                logger.info(f"Inspecting set of {batch} images")
+                analyze_set(batch)
+                if step_callback is not None:
+                    step_callback((i / number_of_full_runs) * 100)
+
+        if self._cancel:
+            return
+        logger.info(f"Inspecting set of {leftover} images")
+        analyze_set(leftover)

@@ -1,67 +1,29 @@
-# Wall Flower
+# Wallflower
 
-## Image Analysis and Search Playground
+It's a desktop wallpaper search system I guess. This is meant to search various sources for desktop wallpapers and download them as needed. It can search by color, aspect ratio or image similarity. It can also find duplicate images across sources. Currently it can scan local directories, saved Reddit wallpaper posts, favorite Imgur galleries and favorite images from Wallhaven. Originally this was a collection of hacky scripts that I thought would be more useful as a single application.
 
-This is a software environment for playing around with image classification for desktop
-wallpapers. It is intended to be maleable and fun!
+### Development
 
-The intent behind this is to try to gather cool looking background images and organize them into
-collections of various types whcih can then be searched and retreived.
+Requires unix build-essentials, [poetry](https://python-poetry.org/docs/#installation) and [pyenv](https://github.com/pyenv/pyenv#simple-python-version-management-pyenv) with the [virtualenv](https://github.com/pyenv/pyenv-virtualenv#pyenv-virtualenv) plugin.
 
+OR a compatible python venv (>=3.7,<3.10) with poetry works too. The above is just a part of my regular python env recipe.
 
-### Configure
-
-Base configuration information.
-Use a `.env` file in the root of the app to load sesitive variable.
-
-`IMAGE_DIRECTORY` - Location to save and access image files.
-
-`REDDIT_CLIENT_ID` - Your client id issued by reddit.
-`REDDIT_CLIENT_SECRET` - Your client secret issued by reddit.
-`REDDIT_USERNAME` - Your reddit username.
-`REDDIT_PASSWORD` - Your reddit password.
-
-`IMGUR_CLIENT_ID` - Your Imgur client id
-`IMGUR_CLIENT_SECRET` - Your Imgur client secret
-`IMGUR_ACCESS_TOKEN` - Access token gathered from Imgur
-`IMGUR_REFRESH_TOKEN` - Refresh token associated with the access token
-
-`GOOGLE_APPLICATION_CREDENTIALS` (optional) - Location for GCP application credentials.
-
-### Database
+Clone the repo and build the env. It is important to set `WALLFLOWER_DEBUG=1` in your env so the app runs in a debug context. If you use vscode with the integrated terminal and debugger, the related project options should handle this automatically.
 
 ```bash
-# Start db fresh
-docker run -d --name db -v /data/db -p 27017:27017 mongo:latest
-
-# Halt db container but leave data
-docker stop db
-
-# Remove persistent db data
-docker rm db
+git clone <repo>
+cd wallflower
+export WALLFLOWER_DEBUG=1
+# activate source env and poetry install
+make env
+# python main.py
+make run
 ```
 
-### Install & Run
+### Building
 
-This will create a virtual environment and install the right dependencies to it.
-Then this cli will be installed with `wallflower.py` as the entrypoint.
-
+This app uses [pyinstaller](https://pyinstaller.org/en/stable/index.html) for packaging.
 ```bash
-pipenv install
-pipenv shell
-pip install --editable .
-```
-
-TDOD: Something is busted with this install thats needs further invesitgation
-
-## Code Quality
-
-Lint 
-```
-pylint app
-```
-
-Type Checking
-```
-mypy --ignore-missing-imports --follow-imports=skip app/clients
+# pyinstaller --onefile main.py
+make pkg
 ```
