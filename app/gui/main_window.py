@@ -1,11 +1,10 @@
 import PySimpleGUI as sg
 from io import BytesIO
-import subprocess
 import webbrowser
 import logging
 
 from app.search import Search, DuplicateSearch
-from app.utils import download_files, ImageList
+from app.utils import download_files, ImageList, open_location
 from app.gui.settings import popup_imgur_settings, popup_local_settings, popup_reddit_settings, popup_wallhaven_settings
 from app.gui.color_picker import popup_color_chooser
 from app.gui.scan_popup import popup_scan
@@ -282,8 +281,7 @@ def main_window():
             image = wallpaper_by_id(image_id)
             logger.info(f"Opening location for image {image_id}")
             if image.source_type == "local":
-                # TODO: This only works on Ubunutu
-                subprocess.call(['xdg-open', image.src_path])
+                open_location(image.src_path)
             else:
                 webbrowser.open(image.src_path)
 

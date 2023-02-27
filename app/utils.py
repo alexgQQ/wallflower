@@ -1,7 +1,10 @@
 import asyncio
 import io
 import logging
+import os
+import platform
 import shutil
+import subprocess
 import threading
 from collections import UserList
 from queue import SimpleQueue
@@ -19,6 +22,17 @@ from app.config import user_agent
 from app.db import Wallpaper, create_session
 
 logger = logging.getLogger(__name__)
+
+
+def open_location(path: str):
+    """Open an image file  in the system's browser"""
+    plat = platform.system()
+    if plat == "Linux":
+        subprocess.Popen(["xdg-open", path])
+    elif plat == "Windows":
+        os.startfile(path)
+    elif plat == "Darwin":
+        subprocess.Popen(["open", path])
 
 
 def random_uuid4():
