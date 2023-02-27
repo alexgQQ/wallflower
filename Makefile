@@ -28,7 +28,9 @@ fmt: ## Format code
 	@black --extend-exclude gui app
 
 pkg: ## Build executable package
-	@pyinstaller --onefile main.py
+# Dumb hack to pin app version, go look at app/__init__.py for the explanation
+	@echo "__version__ = '$$(poetry version -s)'" > app/__init__.py
+	@pyinstaller --onefile --name wallflower-linux main.py
 
 run: ## Run local application
 	@python main.py

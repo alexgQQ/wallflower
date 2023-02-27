@@ -1,10 +1,13 @@
 import os
+import platform
 from configparser import ConfigParser
 
 from platformdirs import user_config_dir, user_data_dir
 
+from app import __version__
+
 app_name = "wallflower"
-user_agent = "osx:wall-flower-cli:v0.0.1 (by /u/PocketBananna)"
+user_agent = f"{platform.system()}:{app_name}:v{__version__}"
 
 
 def debug_mode() -> bool:
