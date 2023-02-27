@@ -1,4 +1,3 @@
-SHELL := /usr/bin/bash
 PYENV_VER := 3.9.14
 NAME := wallflower
 ENV_NAME := $(PYENV_VER)/envs/$(NAME)
