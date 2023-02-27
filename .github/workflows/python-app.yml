@@ -30,8 +30,7 @@ jobs:
     - name: Build binary
       run: pyinstaller --onefile main.py
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v3.1.2
-    - uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v3
       with:
         name: binary-linux
         path: dist/main
@@ -57,7 +56,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: binary-windows
-        path: dist/main
+        path: dist/main.exe
         retention-days: 1
 
   build-macos:
