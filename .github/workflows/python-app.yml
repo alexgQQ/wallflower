@@ -9,7 +9,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-linux:
@@ -28,12 +28,12 @@ jobs:
         poetry config virtualenvs.create false --local
         poetry install
     - name: Build binary
-      run: pyinstaller --onefile main.py
+      run: pyinstaller --onefile --name wallflower-linux main.py
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v3
       with:
         name: binary-linux
-        path: dist/main
+        path: dist/wallflower-linux
         retention-days: 1
   
   build-windows:
@@ -52,11 +52,11 @@ jobs:
         poetry config virtualenvs.create false --local
         poetry install
     - name: Build binary
-      run: pyinstaller --onefile main.py
+      run: pyinstaller --onefile --name wallflower-win main.py
     - uses: actions/upload-artifact@v3
       with:
         name: binary-windows
-        path: dist/main.exe
+        path: dist/wallflower-win.exe
         retention-days: 1
 
   build-macos:
@@ -75,11 +75,11 @@ jobs:
         poetry config virtualenvs.create false --local
         poetry install
     - name: Build binary
-      run: pyinstaller --onefile main.py
+      run: pyinstaller --onefile --name wallflower-osx main.py
     - uses: actions/upload-artifact@v3
       with:
         name: binary-osx
-        path: dist/main
+        path: dist/wallflower-osx
         retention-days: 1
 
   publish-release:
@@ -91,17 +91,14 @@ jobs:
       uses: actions/download-artifact@v3.0.2
       with:
         name: binary-linux
-        path: wallflower-linux
     - name: Download windows build artifact
       uses: actions/download-artifact@v3.0.2
       with:
         name: binary-windows
-        path: wallflower-windows.exe
     - name: Download osx build artifact
       uses: actions/download-artifact@v3.0.2
       with:
         name: binary-osx
-        path: wallflower-osx
     - name: Release
       uses: softprops/action-gh-release@v1
       if: startsWith(github.ref, 'refs/tags/')
@@ -109,4 +106,4 @@ jobs:
         files: |
           wallflower-osx
           wallflower-linux
-          wallflower-windows.exe
+          wallflower-win.exe
