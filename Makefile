@@ -1,4 +1,4 @@
-SHELL := /usr/bin/zsh
+SHELL := /usr/bin/bash
 PYENV_VER := 3.9.14
 NAME := wallflower
 ENV_NAME := $(PYENV_VER)/envs/$(NAME)
@@ -17,7 +17,7 @@ rmenv: ## Remove the development environment
 	@rm -f .venv
 
 clean: ## Remove build artifacts, temp images and any clutter
-	@rm -rf **/*.pyc
+	@find . -type f -name '*.pyc' -delete
 	@rm -rf build
 	@rm -rf dist
 	@rm -f main.spec
