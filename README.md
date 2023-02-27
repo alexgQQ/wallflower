@@ -11,7 +11,7 @@ OR a compatible python venv (>=3.7,<3.10) with poetry works too. The above is ju
 Clone the repo and build the env. It is important to set `WALLFLOWER_DEBUG=1` in your env so the app runs in a debug context. If you use vscode with the integrated terminal and debugger, the related project options should handle this automatically.
 
 ```bash
-git clone <repo>
+git clone https://github.com/alexgQQ/wallflower.git
 cd wallflower
 export WALLFLOWER_DEBUG=1
 # activate source env and poetry install

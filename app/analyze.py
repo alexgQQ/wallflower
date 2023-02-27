@@ -1,9 +1,8 @@
 import logging
-import math
 import os
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
-from typing import List
+from typing import Any, List, Optional
 
 import cv2
 import numpy as np
@@ -110,7 +109,7 @@ def scan_local_images():
             to_add.append(
                 {
                     "source_uri": image_dir,
-                    "source_id": filename[:-1],
+                    "source_id": filename,
                     "source_type": "local",
                     "image_type": ext[1:],
                     "analyzed": False,
@@ -145,12 +144,18 @@ class Crawler:
         self._cancel = True
         logger.info(f"Canceling Crawler run")
 
-    def __call__(self, limit: int):
+    @staticmethod
+    def client_enabled(client) -> bool:
+        return getattr(getattr(config, client.source_type), "enabled")
+
+    def __call__(self, limit: int) -> int:
         new_images = 0
         new_images += scan_local_images()
         for client_cls in self.clients:
             if self._cancel:
                 break
+            if not self.client_enabled(client_cls):
+                continue
             self.client = client_cls()
             data = [entry for entry in self.client.fetch(limit)]
             bulk_insert_wallpapers(data)
@@ -166,12 +171,16 @@ class Inspector:
         self._cancel = True
         logger.info(f"Canceling Inspector run")
 
-    def __call__(self, limit: int = 20, batch: int = 100, step_callback=None):
+    # TODO: step_callback was originally used with a progressbar ui
+    #   not used now but maybe it would look nice
+    def __call__(
+        self, limit: int = 20, batch: int = 100, step_callback: Optional[Any] = None
+    ):
         number_of_full_runs = limit // batch
         leftover = limit % batch
         processes = cpu_count()
 
-        def analyze_set(num):
+        def analyze_set(num: int):
             with create_session() as session:
                 to_analyze = (
                     session.query(Wallpaper)

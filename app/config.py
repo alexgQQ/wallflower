@@ -28,6 +28,8 @@ class ConfigObject:
     def __getattr__(self, attr):
         if attr == "image_dirs":
             return self.config.getlist(self.section, attr)
+        elif attr == "enabled":
+            return self.config.getboolean(self.section, attr.lower())
         else:
             return self.config.get(self.section, attr)
 
