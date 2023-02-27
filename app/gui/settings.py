@@ -1,5 +1,6 @@
 import PySimpleGUI as sg
 import webbrowser
+import os
 
 from app.config import config
 
@@ -56,6 +57,9 @@ The local image sources are the directories where desired searchable image files
             window.write_event_value("-SELECT-", True)
         elif event == "-SELECT-":
             folder = values["-FOLDER_SELECT-"]
+            # FolderBrowser returns paths with forward slashes
+            # even on windows so it must be cleaned else file locs are wrong
+            folder = os.path.abspath(folder)
             image_dirs.append(folder)
             listbox.update(values=image_dirs)
         elif event == "-REMOVE_BUTTON-":
@@ -68,7 +72,11 @@ The local image sources are the directories where desired searchable image files
         elif event == "Ok":
             config.core.image_dirs = image_dirs
             if values["-DOWNLOAD_LOC-"]:
-                config.core.download_loc = values["-DOWNLOAD_LOC-"]
+                folder = values["-DOWNLOAD_LOC-"]
+                # FolderBrowser returns paths with forward slashes
+                # even on windows so it must be cleaned else file locs are wrong
+                folder = os.path.abspath(folder)
+                config.core.download_loc = folder
             config.update()
             break
 
