@@ -114,6 +114,7 @@ def main_window():
 
     while True:
         event, values = window.read()
+        logger.info(f"Main window event - {event}  {values}")
         images.from_queue()
 
         if event == sg.WIN_CLOSED or event == "Quit" or event == "Exit":

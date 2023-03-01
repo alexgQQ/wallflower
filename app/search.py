@@ -28,6 +28,10 @@ class ColorSearch:
     point tree for fast and accurate distance searching.
     """
 
+    def __init__(self) -> None:
+        colors = [self.hex_to_lab(val) for val in self.known_colors]
+        self.vptree = vptree.VPTree(colors, self.euclidean)
+
     # TODO: This could potentially get very large and
     # may need to be updated if new images are added
     @cached_property
@@ -61,12 +65,9 @@ class ColorSearch:
 
     def __call__(self, color: str, n_colors: int = 20) -> List[int]:
         """Find the n closest colors in the db to a given color"""
-        colors = [self.hex_to_lab(val) for val in self.known_colors]
         color = self.hex_to_lab(int(color.strip("#"), 16))
-
-        search_tree = vptree.VPTree(colors, self.euclidean)
         # First return value are the search scores and are not needed
-        _, labs = zip(*search_tree.get_n_nearest_neighbors(color, n_colors))
+        _, labs = zip(*self.vptree.get_n_nearest_neighbors(color, n_colors))
         return [self.lab_to_hex(lab) for lab in labs]
 
 
@@ -163,8 +164,10 @@ class Search:
     """Handles processing search input from the ui and parses the results"""
 
     limit = 20
-    color_search = ColorSearch()
     query_data = QueryDict()
+
+    def __init__(self) -> None:
+        self.color_search = ColorSearch()
 
     def parse_query(self, query: Query) -> Tuple[Tuple[int, str, str], List[str]]:
         """Evaluate a query and split the results into metadata and image sources"""
