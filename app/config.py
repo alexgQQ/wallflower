@@ -10,6 +10,10 @@ app_name = "wallflower"
 user_agent = f"{platform.system()}:{app_name}:v{__version__}"
 
 
+def is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
 def debug_mode() -> bool:
     return bool(os.getenv("WALLFLOWER_DEBUG", False))
 

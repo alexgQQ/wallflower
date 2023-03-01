@@ -10,7 +10,7 @@ from PIL import Image
 
 from app.async_utils import load
 from app.clients import MyImgurClient, MyWallhavenClient, RedditClient
-from app.config import config
+from app.config import config, is_windows
 from app.db import (
     Wallpaper,
     all_local_wallpapers,
@@ -208,9 +208,13 @@ class Inspector:
                     ids.append(_ids[ix])
                     images.append(data.convert("RGB"))
 
-            # Speeds up processing but strains resources
-            with Pool(processes=processes) as pool:
-                data = pool.map(analyze_image, images)
+            # For some reason the process pool spawns a bunch
+            # of ui windows on windows os so lets not get fancy
+            if is_windows():
+                data = map(analyze_image, images)
+            else:
+                with Pool(processes=processes) as pool:
+                    data = pool.map(analyze_image, images)
 
             to_update = []
             wallpaper_to_colors = {}

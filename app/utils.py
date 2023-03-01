@@ -18,7 +18,7 @@ import PySimpleGUI as sg
 from PIL import Image
 
 from app.async_utils import download as async_download
-from app.config import user_agent
+from app.config import is_windows, user_agent
 from app.db import Wallpaper, create_session
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ def open_location(path: str):
     plat = platform.system()
     if plat == "Linux":
         subprocess.Popen(["xdg-open", path])
-    elif plat == "Windows":
+    elif is_windows():
         os.startfile(path)
     elif plat == "Darwin":
         subprocess.Popen(["open", path])
