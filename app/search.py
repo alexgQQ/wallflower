@@ -1,6 +1,5 @@
 import logging
 from collections import defaultdict
-from functools import cached_property
 from math import sqrt
 from typing import Dict, List, Optional, Tuple
 
@@ -29,12 +28,19 @@ class ColorSearch:
     """
 
     def __init__(self) -> None:
-        colors = [self.hex_to_lab(val) for val in self.known_colors]
-        self.vptree = vptree.VPTree(colors, self.euclidean)
+        self.reload()
+
+    def reload(self):
+        """Load searchable color tree with known db colors"""
+        colors = [self.hex_to_lab(val) for val in self.known_colors()]
+        if colors:
+            self.loaded = True
+            self.vptree = vptree.VPTree(colors, self.euclidean)
+        else:
+            self.loaded = False
 
     # TODO: This could potentially get very large and
     # may need to be updated if new images are added
-    @cached_property
     def known_colors(self) -> List[int]:
         return tuple(color[0] for color in all_colors())
 
@@ -67,8 +73,11 @@ class ColorSearch:
         """Find the n closest colors in the db to a given color"""
         color = self.hex_to_lab(int(color.strip("#"), 16))
         # First return value are the search scores and are not needed
-        _, labs = zip(*self.vptree.get_n_nearest_neighbors(color, n_colors))
-        return [self.lab_to_hex(lab) for lab in labs]
+        if self.loaded:
+            _, labs = zip(*self.vptree.get_n_nearest_neighbors(color, n_colors))
+            return [self.lab_to_hex(lab) for lab in labs]
+        else:
+            return None
 
 
 class DuplicateSearch:

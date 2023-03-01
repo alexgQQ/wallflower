@@ -132,6 +132,7 @@ def main_window():
             popup_wallhaven_settings()
         elif event == "Update Images":
             popup_scan()
+            search.reload()
 
         elif event == "Find Duplicates":
             dupes = DuplicateSearch()
