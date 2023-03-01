@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wallflower"
-version = "0.2.0"
+version = "0.3.1"
 description = "A desktop wallpaper aggregator"
 authors = ["alexgQQ <me@alexgrand.dev>"]
 
