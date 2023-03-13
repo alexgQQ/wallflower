@@ -224,12 +224,21 @@ class Search:
     def aspect_ratio(self, value: Optional[float]):
         self.query_data["aspect_ratio"] = value
 
+    @property
+    def tags(self) -> Optional[List[str]]:
+        return self.query_data.get("tags")
+
+    @tags.setter
+    def tags(self, value: Optional[List[str]]):
+        self.query_data["tags"] = value
+
     def clear(self):
         """Clear search params"""
         self.ids = None
         self.colors = None
         self.source_types = None
         self.aspect_ratio = None
+        self.tags = None
 
     def find(self) -> Tuple[Tuple[int, str, str], List[str]]:
         """Return search results"""

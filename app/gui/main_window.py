@@ -66,11 +66,15 @@ def main_window():
         sg.Checkbox("wallhaven", key="-TYPE_WALLHAVEN-"),
         sg.Checkbox("imgur", key="-TYPE_IMGUR-"),
     ]
+
+    tag_input = sg.Input(size=(12, 1), enable_events=True, key='-IN-')
+    tag_search = [tag_input]
+
     search_layout = sg.Column([
         [sg.Push(), sg.Frame('', [
-            ar_buttons + [color_bttn, search_button(), image_button()]
+            tag_search + ar_buttons + [color_bttn, search_button(), image_button()]
         ,
-            type_buttons + [clear_button(), download_bttn]
+            [sg.Push()] + type_buttons + [clear_button(), download_bttn]
         ])]
     ], expand_x=True)
 
@@ -132,7 +136,7 @@ def main_window():
             popup_wallhaven_settings()
         elif event == "Update Images":
             popup_scan()
-            search.reload()
+            search.color_search.reload()
 
         elif event == "Find Duplicates":
             dupes = DuplicateSearch()
@@ -232,6 +236,9 @@ def main_window():
                         else:
                             search.query_data["source_types"].append(src_type)
 
+            if values['-IN-']:
+                search.tags = [values['-IN-']]
+
             table_data, image_srcs = search.find()
             table.update(values=table_data)
             if image_srcs:
@@ -247,6 +254,7 @@ def main_window():
             for each in type_buttons:
                 each.update(value=False)
             color_bttn.update(button_color=orig_button_color)
+            tag_input.update(value=None)
 
         elif event == "-SCAN_THREAD-":
             thread_id = values["-SCAN_THREAD-"]
