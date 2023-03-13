@@ -7,6 +7,8 @@ from typing import Any, List, Optional
 import cv2
 import numpy as np
 from PIL import Image
+from tensorflow.keras.models import load_model
+from tensorflow import convert_to_tensor, stack
 
 from app.async_utils import load
 from app.clients import MyImgurClient, MyWallhavenClient, RedditClient
@@ -15,6 +17,7 @@ from app.db import (
     Wallpaper,
     all_local_wallpapers,
     bulk_insert_colors,
+    bulk_insert_tags,
     bulk_insert_wallpapers,
     bulk_update_wallpapers,
     create_session,
@@ -52,7 +55,27 @@ def common_colors(image: np.array, n_colors: int = 5) -> List[str]:
     )[0]
 
 
-def analyze_image(image):
+# TODO: Would be nice to be able to package this with the model
+#   some models do it with a inference prediction api but I don't have that
+def load_label_names():
+    with open(config.label_loc, "r") as fobj:
+        label_names = fobj.read().split("\n")
+    return label_names
+
+
+def image_labels(image, model, labels):
+    image = image.resize((224, 224)).convert("RGB")
+    input_tensor = convert_to_tensor(image)
+    # Direct model calls expect a batch of tensors
+    # so we make one, my hacky way for single image inference
+    # but I should run these as a batch run instead 
+    input_tensor = stack([input_tensor])
+    pred = model(input_tensor, training=False)
+    ix = pred[0].numpy().argmax()
+    return [labels[ix]]
+
+
+def analyze_image(image, model, label_names):
     """
     Gather information on an image for search organization.
     :param PIL.Image image: image to analyze.
@@ -70,13 +93,14 @@ def analyze_image(image):
     gray_image_array = np.asarray(image)
     colors = common_colors(image_array, 10)
     colors = [to_hex(*color) for color in colors]
+    tags = image_labels(image, model, label_names)
 
     return {
         "dhash": str(dhash(gray_image_array)),
         "width": width,
         "height": height,
         "analyzed": True,
-    }, colors
+    }, colors, tags
 
 
 def scan_local_images():
@@ -180,6 +204,9 @@ class Inspector:
         leftover = limit % batch
         processes = cpu_count()
 
+        model = load_model(config.core.model_loc)
+        labels = load_label_names()
+
         def analyze_set(num: int):
             with create_session() as session:
                 to_analyze = (
@@ -208,23 +235,27 @@ class Inspector:
                     ids.append(_ids[ix])
                     images.append(data.convert("RGB"))
 
+            # TODO: Running tf with a process pool locks up the computer it seems
             # For some reason the process pool spawns a bunch
             # of ui windows on windows os so lets not get fancy
-            if is_windows():
-                data = map(analyze_image, images)
-            else:
-                with Pool(processes=processes) as pool:
-                    data = pool.map(analyze_image, images)
+            # if is_windows():
+            data = map(analyze_image, images, [model] * len(images), [labels] * len(images))
+            # else:
+            #     with Pool(processes=processes) as pool:
+            #         data = pool.map(analyze_image, images)
 
             to_update = []
             wallpaper_to_colors = {}
+            wallpaper_to_tags = {}
             for id, obj in zip(ids, data):
-                entry, colors = obj
+                entry, colors, tags = obj
                 to_update.append({"id": id, **entry})
                 wallpaper_to_colors[id] = colors
+                wallpaper_to_tags[id] = tags
 
             bulk_update_wallpapers(to_update)
             bulk_insert_colors(wallpaper_to_colors)
+            bulk_insert_tags(wallpaper_to_tags)
 
         if number_of_full_runs > 0:
             for i in range(number_of_full_runs):

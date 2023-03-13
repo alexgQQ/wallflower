@@ -63,12 +63,16 @@ class Config:
             logs_level = "DEBUG"
             image_dirs = os.path.join(os.getcwd(), "images")
             download_loc = os.path.join(os.getcwd(), "images/downloads")
+            model_loc = os.path.join(os.getcwd(), "model")
+            label_loc = os.path.join(os.getcwd(), "class_names.txt")
         else:
             db_loc = os.path.join(user_data_dir(app_name), "data.db")
             logs_loc = os.path.join(user_data_dir(app_name), "app.log")
             logs_level = "WARN"
             image_dirs = ""
             download_loc = ""
+            model_loc = os.path.join(user_data_dir(app_name), "model")
+            label_loc = os.path.join(user_data_dir(app_name), "class_names.txt")
 
         return {
             "core": {
@@ -77,6 +81,8 @@ class Config:
                 "download_loc": download_loc,
                 "logs_loc": logs_loc,
                 "logs_level": logs_level,
+                "model_loc": model_loc,
+                "label_loc": label_loc,
             },
             "reddit": {
                 "enabled": "False",
