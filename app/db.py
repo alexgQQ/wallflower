@@ -37,6 +37,16 @@ class WallpaperColor(Base):
     wallpaper = relationship("Wallpaper", back_populates="colors")
 
 
+class WallpaperTag(Base):
+    __tablename__ = "wallpaper_tags"
+    id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
+    wallpaper_id = Column(
+        "wallpaper_id", Integer, ForeignKey("wallpapers.id"), nullable=False
+    )
+    tag = Column(String, nullable=False)
+    wallpaper = relationship("Wallpaper", back_populates="tags")
+
+
 # TODO: Should I make the type fields enums or choice fields?
 class Wallpaper(Base):
     __tablename__ = "wallpapers"
@@ -52,6 +62,7 @@ class Wallpaper(Base):
     analyzed = Column(Boolean, nullable=False)
     duplicate = Column(Boolean, nullable=False, default=False)
     colors = relationship("WallpaperColor", back_populates="wallpaper")
+    tags = relationship("WallpaperTag", back_populates="wallpaper")
 
     @property
     def filename(self) -> str:
@@ -78,6 +89,7 @@ class QueryDict(TypedDict):
     colors: Optional[List[int]]
     source_types: Optional[List[str]]
     aspect_ratio: Optional[float]
+    tags: Optional[List[str]]
 
 
 class WallpaperQuery:
@@ -111,6 +123,12 @@ class WallpaperQuery:
         # and depending on rounding something like 1.78 may get missed
         return self.query.filter(
             (cast(Wallpaper.width, REAL) / Wallpaper.height) == aspect_ratio
+        )
+
+    def by_tags(self, tags: List[str]) -> Query:
+        return (
+            self.query.join(Wallpaper.tags)
+            .filter(WallpaperTag.tag.in_(tags))
         )
 
     def __call__(self, limit: int = 10) -> List[Wallpaper]:
@@ -203,6 +221,21 @@ def bulk_insert_colors(wallpaper_to_colors: Dict[int, List[int]]):
                     }
                 )
         session.bulk_insert_mappings(WallpaperColor, mappings)
+        session.commit()
+
+
+def bulk_insert_tags(wallpaper_to_tags: Dict[int, List[str]]):
+    with create_session() as session:
+        mappings = []
+        for wallpaper_id, tags in wallpaper_to_tags.items():
+            for tag in tags:
+                mappings.append(
+                    {
+                        "tag": tag,
+                        "wallpaper_id": wallpaper_id,
+                    }
+                )
+        session.bulk_insert_mappings(WallpaperTag, mappings)
         session.commit()
 
 
