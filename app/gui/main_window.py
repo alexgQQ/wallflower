@@ -8,7 +8,7 @@ from app.utils import download_files, ImageList, open_location
 from app.gui.settings import popup_imgur_settings, popup_local_settings, popup_reddit_settings, popup_wallhaven_settings
 from app.gui.color_picker import popup_color_chooser
 from app.gui.scan_popup import popup_scan
-from app.db import wallpaper_by_id, WallpaperQuery, set_duplicate
+from app.db import wallpaper_by_id, WallpaperQuery, set_duplicate, get_tags
 from app.config import app_name
 
 
@@ -67,7 +67,9 @@ def main_window():
         sg.Checkbox("imgur", key="-TYPE_IMGUR-"),
     ]
 
-    tag_input = sg.Input(size=(12, 1), enable_events=True, key='-IN-')
+    # TODO: Possible for some sort of autocomplete?
+    tags = get_tags()
+    tag_input = sg.Combo(tags, size=(12, 1), key='-TAG_INPUT-')
     tag_search = [tag_input]
 
     search_layout = sg.Column([
@@ -236,8 +238,8 @@ def main_window():
                         else:
                             search.query_data["source_types"].append(src_type)
 
-            if values['-IN-']:
-                search.tags = [values['-IN-']]
+            if values['-TAG_INPUT-']:
+                search.tags = [values['-TAG_INPUT-']]
 
             table_data, image_srcs = search.find()
             table.update(values=table_data)
@@ -254,7 +256,7 @@ def main_window():
             for each in type_buttons:
                 each.update(value=False)
             color_bttn.update(button_color=orig_button_color)
-            tag_input.update(value=None)
+            tag_input.update(value="")
 
         elif event == "-SCAN_THREAD-":
             thread_id = values["-SCAN_THREAD-"]

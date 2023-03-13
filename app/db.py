@@ -180,6 +180,13 @@ def all_colors() -> List[Tuple[int]]:
     return query
 
 
+def get_tags():
+    with create_session() as session:
+        query = session.query(WallpaperTag.tag).distinct().all()
+    # One day SQLAlchemy will have a 'flat' option
+    return tuple(entry[0] for entry in query)
+
+
 class InsertMapping(TypedDict):
     source_type: str
     source_id: str

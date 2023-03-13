@@ -58,7 +58,7 @@ def common_colors(image: np.array, n_colors: int = 5) -> List[str]:
 # TODO: Would be nice to be able to package this with the model
 #   some models do it with a inference prediction api but I don't have that
 def load_label_names():
-    with open(config.label_loc, "r") as fobj:
+    with open(config.core.label_loc, "r") as fobj:
         label_names = fobj.read().split("\n")
     return label_names
 
