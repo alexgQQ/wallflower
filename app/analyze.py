@@ -75,7 +75,7 @@ def image_labels(image, model, labels):
     return [labels[ix]]
 
 
-def analyze_image(image, model, label_names):
+def analyze_image(image):
     """
     Gather information on an image for search organization.
     :param PIL.Image image: image to analyze.
@@ -85,6 +85,7 @@ def analyze_image(image, model, label_names):
     """
 
     width, height = image.size
+    image = image.copy()
     # TODO: Random values but thumbnail resizes with respect to aspect ratio
     #       what is the best size for speed vs accuracy tho?
     image.thumbnail((480, 270), Image.ANTIALIAS)
@@ -93,14 +94,13 @@ def analyze_image(image, model, label_names):
     gray_image_array = np.asarray(image)
     colors = common_colors(image_array, 10)
     colors = [to_hex(*color) for color in colors]
-    tags = image_labels(image, model, label_names)
 
     return {
         "dhash": str(dhash(gray_image_array)),
         "width": width,
         "height": height,
         "analyzed": True,
-    }, colors, tags
+    }, colors
 
 
 def scan_local_images():
@@ -238,20 +238,35 @@ class Inspector:
             # TODO: Running tf with a process pool locks up the computer it seems
             # For some reason the process pool spawns a bunch
             # of ui windows on windows os so lets not get fancy
-            # if is_windows():
-            data = map(analyze_image, images, [model] * len(images), [labels] * len(images))
-            # else:
-            #     with Pool(processes=processes) as pool:
-            #         data = pool.map(analyze_image, images)
+            if is_windows():
+                data = map(analyze_image, images)
+            else:
+                with Pool(processes=processes) as pool:
+                    data = pool.map(analyze_image, images)
+
+            tensors = []
+            for image in images:
+                image = image.resize((224, 224)).convert("RGB")
+                tensors.append(convert_to_tensor(image))
+            tensors = stack(tensors)
+
+            predictions = model(tensors, training=False)
 
             to_update = []
             wallpaper_to_colors = {}
             wallpaper_to_tags = {}
-            for id, obj in zip(ids, data):
-                entry, colors, tags = obj
+            for id, obj, pred in zip(ids, data, predictions):
+                entry, colors = obj
                 to_update.append({"id": id, **entry})
                 wallpaper_to_colors[id] = colors
-                wallpaper_to_tags[id] = tags
+                pred = pred.numpy()
+                wallpaper_to_tags[id] = []
+                score = 1.0
+                while score > 0.5:
+                    ix = pred.argmax()
+                    score = pred[ix]
+                    pred = np.delete(pred, ix)
+                    wallpaper_to_tags[id].append(labels[ix])
 
             bulk_update_wallpapers(to_update)
             bulk_insert_colors(wallpaper_to_colors)
@@ -268,5 +283,6 @@ class Inspector:
 
         if self._cancel:
             return
-        logger.info(f"Inspecting set of {leftover} images")
-        analyze_set(leftover)
+        if leftover > 0:
+            logger.info(f"Inspecting set of {leftover} images")
+            analyze_set(leftover)

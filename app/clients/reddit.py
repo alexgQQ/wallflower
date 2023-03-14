@@ -81,13 +81,13 @@ class RedditClient(Client):
                 if ext in supported_formats:
                     pass
                 else:
-                    logger.warning("Failed to identify image type - {obj.url}")
+                    logger.warning(f"Failed to identify image type - {obj.url}")
                     return None
             else:
-                logger.warning("Failed to identify image type - {obj.url}")
+                logger.warning(f"Failed to identify image type - {obj.url}")
                 return None
         except requests.exceptions.RequestException:
-            logger.warning("Failed to identify image type - {obj.url}")
+            logger.warning(f"Failed to identify image type - {obj.url}")
             return None
 
         return {
